@@ -31,7 +31,7 @@ find_path(PTHREADS_INCLUDE_DIR NAMES pthread.h)
 if(NOT PTHREADS_LIBRARY)
   find_library(PTHREADS_LIBRARY_RELEASE NAMES pthread pthreads pthreadsVC2)
   find_library(PTHREADS_LIBRARY_DEBUG NAMES pthreadd pthreadsd pthreadsVC2d)
-  select_library_configurations(FLTK_BASE)
+  select_library_configurations(PTHREADS)
 endif()
 
 find_package_handle_standard_args(PTHREADS DEFAULT_MSG PTHREADS_LIBRARY PTHREADS_INCLUDE_DIR)
