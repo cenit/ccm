@@ -107,14 +107,13 @@ if(UNIX)
 endif()
 
 if(APPLE)
-  set( FLTK_PLATFORM_DEPENDENT_LIBS  "-framework Carbon -framework Cocoa -framework ApplicationServices -lz")
+  set(FLTK_PLATFORM_DEPENDENT_LIBS  "-framework Carbon -framework Cocoa -framework ApplicationServices -lz")
 endif()
 
 # If FLTK_INCLUDE_DIR is already defined we assigne its value to FLTK_DIR
 if(FLTK_INCLUDE_DIR)
   set(FLTK_DIR ${FLTK_INCLUDE_DIR})
 endif()
-
 
 # If FLTK has been built using CMake we try to find everything directly
 set(FLTK_DIR_STRING "directory containing FLTKConfig.cmake.  This is either the root of the build tree, or PREFIX/lib/fltk for an installation.")

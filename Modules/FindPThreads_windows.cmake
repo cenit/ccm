@@ -22,11 +22,17 @@
 #   List of libraries to link with when using PThreads
 #
 
-include(FindPackageHandleStandardArgs)
-
+include(${CMAKE_ROOT}/Modules/FindPackageHandleStandardArgs.cmake)
+include(${CMAKE_ROOT}/Modules/SelectLibraryConfigurations.cmake)
 
 find_path(PTHREADS_INCLUDE_DIR NAMES pthread.h)
-find_library(PTHREADS_LIBRARY NAMES pthread pthreads pthreadsVC2)
+
+# Allow libraries to be set manually
+if(NOT PTHREADS_LIBRARY)
+  find_library(PTHREADS_LIBRARY_RELEASE NAMES pthread pthreads pthreadsVC2)
+  find_library(PTHREADS_LIBRARY_DEBUG NAMES pthreadd pthreadsd pthreadsVC2d)
+  select_library_configurations(FLTK_BASE)
+endif()
 
 find_package_handle_standard_args(PTHREADS DEFAULT_MSG PTHREADS_LIBRARY PTHREADS_INCLUDE_DIR)
 mark_as_advanced(PTHREADS_INCLUDE_DIR PTHREADS_LIBRARY)
@@ -38,4 +44,3 @@ else()
 	SET(PTHREADS_LIBRARIES)
 	SET(PTHREADS_INCLUDE_DIRS)
 endif()
-
