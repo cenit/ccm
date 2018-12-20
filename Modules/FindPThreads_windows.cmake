@@ -29,8 +29,8 @@ find_path(PTHREADS_INCLUDE_DIR NAMES pthread.h)
 
 # Allow libraries to be set manually
 if(NOT PTHREADS_LIBRARY)
-  find_library(PTHREADS_LIBRARY_RELEASE NAMES pthread pthreads pthreadsVC2)
-  find_library(PTHREADS_LIBRARY_DEBUG NAMES pthreadd pthreadsd pthreadsVC2d)
+  find_library(PTHREADS_LIBRARY_RELEASE NAMES pthreadsVC2)
+  find_library(PTHREADS_LIBRARY_DEBUG NAMES pthreadsVC2d)
   select_library_configurations(PTHREADS)
 endif()
 
