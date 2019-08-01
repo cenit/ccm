@@ -19,24 +19,20 @@
 #  ``CUDNN_LIBRARIES``
 #    The CUDNN libraries.
 #
-# Hints
-# ^^^^^
-#
-#  ``CUDNN_ROOT_DIR``
-#    Set this variable to a directory that contains a CUDNN installation.
-#
 
 include(FindPackageHandleStandardArgs)
 
-#set(CUDNN_ROOT_DIR "" CACHE PATH "Folder contains NVIDIA cuDNN")
-
-find_path(CUDNN_INCLUDE_DIR cudnn.h
-    HINTS ${CUDNN_ROOT_DIR} ${CUDA_HOME} ${CUDA_TOOLKIT_ROOT_DIR}
+if(NOT CUDNN_INCLUDE_DIR)
+  find_path(CUDNN_INCLUDE_DIR cudnn.h
+    HINTS ${CUDA_HOME} ${CUDA_TOOLKIT_ROOT_DIR} $ENV{cudnn} $ENV{CUDNN}
     PATH_SUFFIXES cuda/include include)
+endif()
 
-find_library(CUDNN_LIBRARY cudnn
-    HINTS ${CUDNN_ROOT_DIR} ${CUDA_HOME} ${CUDA_TOOLKIT_ROOT_DIR}
+if(NOT CUDNN_LIBRARY)
+  find_library(CUDNN_LIBRARY cudnn
+    HINTS ${CUDA_HOME} ${CUDA_TOOLKIT_ROOT_DIR} $ENV{cudnn} $ENV{CUDNN}
     PATH_SUFFIXES lib lib64 cuda/lib cuda/lib64 lib/x64)
+endif()
 
 find_package_handle_standard_args(
     CUDNN DEFAULT_MSG CUDNN_INCLUDE_DIR CUDNN_LIBRARY)
@@ -60,9 +56,40 @@ if(CUDNN_FOUND)
   else()
     set(CUDNN_VERSION "${CUDNN_VERSION_MAJOR}.${CUDNN_VERSION_MINOR}.${CUDNN_VERSION_PATCH}")
   endif()
+endif()
 
-  set(CUDNN_INCLUDE_DIRS ${CUDNN_INCLUDE_DIR})
-  set(CUDNN_LIBRARIES ${CUDNN_LIBRARY})
+set(CUDNN_INCLUDE_DIRS ${CUDNN_INCLUDE_DIR})
+set(CUDNN_LIBRARIES ${CUDNN_LIBRARY})
+if(CUDNN_FOUND)
   message(STATUS "Found cuDNN: v${CUDNN_VERSION}  (include: ${CUDNN_INCLUDE_DIR}, library: ${CUDNN_LIBRARY})")
-  mark_as_advanced(CUDNN_ROOT_DIR CUDNN_LIBRARY CUDNN_INCLUDE_DIR)
+endif()
+mark_as_advanced(CUDNN_LIBRARY CUDNN_INCLUDE_DIR)
+
+# Register imported libraries:
+# 1. If we can find a Windows .dll file (or if we can find both Debug and
+#    Release libraries), we will set appropriate target properties for these.
+# 2. However, for most systems, we will only register the import location and
+#    include directory.
+
+set(CUDNN_DLL_DIR ${CUDNN_INCLUDE_DIR})
+list(TRANSFORM CUDNN_DLL_DIR APPEND "/../bin")
+message(STATUS "CUDNN_DLL_DIR: ${CUDNN_DLL_DIR}")
+
+find_file(CUDNN_LIBRARY_DLL NAMES cudnn64_7.dll PATHS ${CUDNN_DLL_DIR})
+
+if( CUDNN_FOUND AND NOT TARGET CuDNN::CuDNN )
+  if( EXISTS "${CUDNN_LIBRARY_DLL}" )
+    add_library( CuDNN::CuDNN      SHARED IMPORTED )
+    set_target_properties( CuDNN::CuDNN PROPERTIES
+      IMPORTED_LOCATION                 "${CUDNN_LIBRARY_DLL}"
+      IMPORTED_IMPLIB                   "${CUDNN_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES     "${CUDNN_INCLUDE_DIR}"
+      IMPORTED_LINK_INTERFACE_LANGUAGES "C" )
+  else()
+    add_library( CuDNN::CuDNN      UNKNOWN IMPORTED )
+    set_target_properties( CuDNN::CuDNN PROPERTIES
+      IMPORTED_LOCATION                 "${CUDNN_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES     "${CUDNN_INCLUDE_DIR}"
+      IMPORTED_LINK_INTERFACE_LANGUAGES "C" )
+  endif()
 endif()

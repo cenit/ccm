@@ -12,31 +12,39 @@
 #
 # This module defines the following variables:
 #
-# ``PTHREADS_FOUND``
-#   True if PThreads library found
+# ``PThreads_windows_FOUND``
+#   True if PThreads_windows library found
 #
-# ``PTHREADS_INCLUDE_DIR``
-#   Location of PThreads headers
+# ``PThreads_windows_INCLUDE_DIR``
+#   Location of PThreads_windows headers
 #
-# ``PTHREADS_LIBRARY``
-#   List of libraries to link with when using PThreads
+# ``PThreads_windows_LIBRARY``
+#   List of libraries to link with when using PThreads_windows
 #
 
 include(${CMAKE_ROOT}/Modules/FindPackageHandleStandardArgs.cmake)
 include(${CMAKE_ROOT}/Modules/SelectLibraryConfigurations.cmake)
 
-find_path(PTHREADS_INCLUDE_DIR NAMES pthread.h)
-
-# Allow libraries to be set manually
-if(NOT PTHREADS_LIBRARY)
-  find_library(PTHREADS_LIBRARY_RELEASE NAMES pthreadsVC2)
-  find_library(PTHREADS_LIBRARY_DEBUG NAMES pthreadsVC2d)
-  select_library_configurations(PTHREADS)
+if(NOT PThreads_windows_INCLUDE_DIR)
+  find_path(PThreads_windows_INCLUDE_DIR NAMES pthread.h PATHS ${PThreads_windows_DIR} PATH_SUFFIXES include)
 endif()
 
-find_package_handle_standard_args(PTHREADS DEFAULT_MSG PTHREADS_LIBRARY PTHREADS_INCLUDE_DIR)
-mark_as_advanced(PTHREADS_INCLUDE_DIR PTHREADS_LIBRARY)
+# Allow libraries to be set manually
+if(NOT PThreads_windows_LIBRARY)
+  find_library(PThreads_windows_LIBRARY_RELEASE NAMES pthreadsVC2 pthreadVC2 PATHS ${PThreads_windows_DIR} PATH_SUFFIXES lib)
+  find_library(PThreads_windows_LIBRARY_DEBUG NAMES pthreadsVC2d pthreadVC2d PATHS ${PThreads_windows_DIR} PATH_SUFFIXES lib)
+  select_library_configurations(PThreads_windows)
+endif()
 
+find_package_handle_standard_args(PThreads_windows DEFAULT_MSG PThreads_windows_LIBRARY PThreads_windows_INCLUDE_DIR)
+mark_as_advanced(PThreads_windows_INCLUDE_DIR PThreads_windows_LIBRARY)
+
+set(PThreads_windows_DLL_DIR ${PThreads_windows_INCLUDE_DIR})
+list(TRANSFORM PThreads_windows_DLL_DIR APPEND "/../bin")
+message(STATUS "PThreads_windows_DLL_DIR: ${PThreads_windows_DLL_DIR}")
+
+find_file(PThreads_windows_LIBRARY_RELEASE_DLL NAMES pthreadVC2.dll PATHS ${PThreads_windows_DLL_DIR})
+find_file(PThreads_windows_LIBRARY_DEBUG_DLL NAMES pthreadVC2d.dll PATHS ${PThreads_windows_DLL_DIR})
 
 # Register imported libraries:
 # 1. If we can find a Windows .dll file (or if we can find both Debug and
@@ -44,32 +52,32 @@ mark_as_advanced(PTHREADS_INCLUDE_DIR PTHREADS_LIBRARY)
 # 2. However, for most systems, we will only register the import location and
 #    include directory.
 
-# Look for dlls, for Release and Debug libraries.
-if(WIN32)
-  string( REPLACE ".lib" ".dll" PTHREADS_LIBRARY_RELEASE_DLL "${PTHREADS_LIBRARY_RELEASE}" )
-  string( REPLACE ".lib" ".dll" PTHREADS_LIBRARY_DEBUG_DLL   "${PTHREADS_LIBRARY_DEBUG}" )
-endif()
-
-if( PTHREADS_FOUND AND NOT TARGET PThreads::PThreads )
-  if( EXISTS "${PTHREADS_LIBRARY_RELEASE_DLL}" )
-    add_library( PThreads::PThreads      SHARED IMPORTED )
-    set_target_properties( PThreads::PThreads PROPERTIES
-      IMPORTED_LOCATION_RELEASE         "${PTHREADS_LIBRARY_RELEASE_DLL}"
-      IMPORTED_IMPLIB                   "${PTHREADS_LIBRARY_RELEASE}"
-      INTERFACE_INCLUDE_DIRECTORIES     "${PTHREADS_INCLUDE_DIR}"
+if( PThreads_windows_FOUND AND NOT TARGET PThreads_windows::PThreads_windows )
+  if( EXISTS "${PThreads_windows_LIBRARY_RELEASE_DLL}" )
+    add_library( PThreads_windows::PThreads_windows      SHARED IMPORTED )
+    set_target_properties( PThreads_windows::PThreads_windows PROPERTIES
+      IMPORTED_LOCATION_RELEASE         "${PThreads_windows_LIBRARY_RELEASE_DLL}"
+      IMPORTED_IMPLIB                   "${PThreads_windows_LIBRARY_RELEASE}"
+      INTERFACE_INCLUDE_DIRECTORIES     "${PThreads_windows_INCLUDE_DIR}"
       IMPORTED_CONFIGURATIONS           Release
       IMPORTED_LINK_INTERFACE_LANGUAGES "C" )
-    if( EXISTS "${PTHREADS_LIBRARY_DEBUG_DLL}" )
-      set_property( TARGET PThreads::PThreads APPEND PROPERTY IMPORTED_CONFIGURATIONS Debug )
-      set_target_properties( FFTW::fftw3 PROPERTIES
-        IMPORTED_LOCATION_DEBUG           "${PTHREADS_LIBRARY_DEBUG_DLL}"
-        IMPORTED_IMPLIB_DEBUG             "${PTHREADS_LIBRARY_DEBUG}" )
+    if( EXISTS "${PThreads_windows_LIBRARY_DEBUG_DLL}" )
+      set_property( TARGET PThreads_windows::PThreads_windows APPEND PROPERTY IMPORTED_CONFIGURATIONS Debug )
+      set_target_properties( PThreads_windows::PThreads_windows PROPERTIES
+        IMPORTED_LOCATION_DEBUG           "${PThreads_windows_LIBRARY_DEBUG_DLL}"
+        IMPORTED_IMPLIB_DEBUG             "${PThreads_windows_LIBRARY_DEBUG}" )
     endif()
   else()
-    add_library( PThreads::PThreads      UNKNOWN IMPORTED )
-    set_target_properties( PThreads::PThreads PROPERTIES
-      IMPORTED_LOCATION                 "${PTHREADS_LIBRARY}"
-      INTERFACE_INCLUDE_DIRECTORIES     "${PTHREADS_INCLUDE_DIR}"
+    add_library( PThreads_windows::PThreads_windows      UNKNOWN IMPORTED )
+    set_target_properties( PThreads_windows::PThreads_windows PROPERTIES
+      IMPORTED_LOCATION_RELEASE         "${PThreads_windows_LIBRARY_RELEASE}"
+      INTERFACE_INCLUDE_DIRECTORIES     "${PThreads_windows_INCLUDE_DIR}"
+      IMPORTED_CONFIGURATIONS           Release
       IMPORTED_LINK_INTERFACE_LANGUAGES "C" )
+    if( EXISTS "${PThreads_windows_LIBRARY_DEBUG}" )
+      set_property( TARGET PThreads_windows::PThreads_windows APPEND PROPERTY IMPORTED_CONFIGURATIONS Debug )
+      set_target_properties( PThreads_windows::PThreads_windows PROPERTIES
+        IMPORTED_LOCATION_DEBUG           "${PThreads_windows_LIBRARY_DEBUG}" )
+    endif()
   endif()
 endif()
