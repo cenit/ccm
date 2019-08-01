@@ -70,12 +70,12 @@ mark_as_advanced(CUDNN_LIBRARY CUDNN_INCLUDE_DIR)
 #    Release libraries), we will set appropriate target properties for these.
 # 2. However, for most systems, we will only register the import location and
 #    include directory.
-
-set(CUDNN_DLL_DIR ${CUDNN_INCLUDE_DIR})
-list(TRANSFORM CUDNN_DLL_DIR APPEND "/../bin")
-message(STATUS "CUDNN_DLL_DIR: ${CUDNN_DLL_DIR}")
-
-find_file(CUDNN_LIBRARY_DLL NAMES cudnn64_7.dll PATHS ${CUDNN_DLL_DIR})
+if(WIN32)
+  set(CUDNN_DLL_DIR ${CUDNN_INCLUDE_DIR})
+  list(TRANSFORM CUDNN_DLL_DIR APPEND "/../bin")
+  message(STATUS "CUDNN_DLL_DIR: ${CUDNN_DLL_DIR}")
+  find_file(CUDNN_LIBRARY_DLL NAMES cudnn64_7.dll PATHS ${CUDNN_DLL_DIR})
+endif()
 
 if( CUDNN_FOUND AND NOT TARGET CuDNN::CuDNN )
   if( EXISTS "${CUDNN_LIBRARY_DLL}" )
