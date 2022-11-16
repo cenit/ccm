@@ -1,0 +1,20 @@
+# Copyright 2019, Stefano Sinigardi
+
+# OS Generated #
+.DS_Store*
+ehthumbs.db
+Icon?
+Thumbs.db
+*.swp
+
+# IDE generated #
+.vs/
+.vscode/
+
+# Build artifacts
+*.log
+*.ini
+*.exe
+*.zip
+aria2*/
+7z*/
