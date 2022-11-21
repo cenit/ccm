@@ -157,10 +157,7 @@ if ( $IsWindows -Or (Get-Host).Version.Major -le 5 ) {
 if (Get-Module -ListAvailable -Name posh-git) {
   Import-Module posh-git
 }
-if (Get-Module -ListAvailable -Name oh-my-posh) {
-  Import-Module oh-my-posh
-  Set-Theme Paradox
-}
-
 Set-PSReadlineKeyHandler -Key ctrl+d -Function ViExit
 Set-Alias ll Get-ChildItem
+
+oh-my-posh init pwsh | Invoke-Expression

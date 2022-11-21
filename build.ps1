@@ -30,7 +30,7 @@ Enable OpenCV feature
 Use a CUDA-enabled OpenCV build
 
 .PARAMETER EnableOPENMP
-Enable OpenCV feature
+Enable OpenMP feature
 
 .PARAMETER EnableVTK
 Enable VTK feature
