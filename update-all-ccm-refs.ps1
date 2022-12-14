@@ -6,7 +6,7 @@
         update-all-ccm-refs
         Created By: Stefano Sinigardi
         Created Date: February 18, 2019
-        Last Modified Date: September 20, 2022
+        Last Modified Date: December 14, 2022
 
 .DESCRIPTION
 Update ccm refs in all cloned repositories
@@ -49,7 +49,7 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$update_all_ccm_refs_ps1_version = "0.0.3"
+$update_all_ccm_refs_ps1_version = "0.0.4"
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
 
@@ -69,7 +69,7 @@ Get-ChildItem $PSScriptRoot/.. -Directory | ForEach-Object {
   git pull
   git submodule update --recursive
 
-  $CCMRepoArray = @("cmake", "ci") | ForEach-Object { Get-ChildItem -Directory . -Filter $_ }
+  $CCMRepoArray = @("cmake", "ci", "ccm") | ForEach-Object { Get-ChildItem -Directory . -Filter $_ }
   ForEach ($CCMRepo in $CCMRepoArray) {
     $CCMRepoLeaf = Split-Path $CCMRepo -Leaf
     Write-Host "Updating ccm submodule ($CCMRepoLeaf) if necessary"

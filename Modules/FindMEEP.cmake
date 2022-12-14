@@ -1,5 +1,4 @@
 # Copyright Stefano Sinigardi
-# for any question, please mail stesinigardi@hotmail.com
 
 #[=======================================================================[.rst:
 FindMEEP
