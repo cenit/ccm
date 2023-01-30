@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 #>
 
-$utils_psm1_version = "0.1.1"
+$utils_psm1_version = "0.2.0"
 $IsWindowsPowerShell = switch ( $PSVersionTable.PSVersion.Major ) {
   5 { $true }
   4 { $true }
@@ -36,6 +36,7 @@ if ($IsWindowsPowerShell -or $IsWindows) {
   $ExecutableSuffix = ".exe"
 }
 
+Push-Location $PSScriptRoot
 $IsInGitSubmoduleString = $(git rev-parse --show-superproject-working-tree 2> $null)
 if ($IsInGitSubmoduleString.Length -eq 0) {
   $IsInGitSubmodule = $false
@@ -43,6 +44,7 @@ if ($IsInGitSubmoduleString.Length -eq 0) {
 else {
   $IsInGitSubmodule = $true
 }
+Pop-Location
 
 function getProgramFiles32bit() {
   $out = ${env:PROGRAMFILES(X86)}
