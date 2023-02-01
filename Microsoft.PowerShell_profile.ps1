@@ -35,7 +35,7 @@ Function unix2dos {
   }
 }
 
-if ( $IsWindows -Or (Get-Host).Version.Major -le 5 ) {
+if ( $IsWindows -Or $IsWindowsPowershell) {
   function gg++() {
     $compiler = Get-Command cl.exe -ErrorAction SilentlyContinue
     If ( $compiler -eq $null ) {
@@ -105,14 +105,10 @@ if ( $IsWindows -Or (Get-Host).Version.Major -le 5 ) {
     $cmd = $cmd -creplace "-funsigned-char", "/J"
     $cmd = $cmd -creplace "-fsized-deallocation", "/Zc:sizedDealloc"
 
-    Write-Host $flags.Replace($file, "") " " -> $cmd.Replace("cl.exe", "").Replace($file, "").Replace("/EHsc", "").Replace("/nologo", "") -ForegroundColor Green
+    if($file) {
+      Write-Host $flags.Replace($file, "") " " -> $cmd.Replace("cl.exe", "").Replace($file, "").Replace("/EHsc", "").Replace("/nologo", "") -ForegroundColor Green
+    }
     Invoke-Expression $cmd
-  }
-
-  # Chocolatey profile
-  $ChocolateyProfile = "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
-  if (Test-Path($ChocolateyProfile)) {
-    Import-Module "$ChocolateyProfile"
   }
 
   $CL_EXE = Get-Command "cl" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
@@ -151,13 +147,12 @@ if ( $IsWindows -Or (Get-Host).Version.Major -le 5 ) {
       Write-Host "Added missing env variable CUDACXX" -ForegroundColor Yellow
     }
   }
-
 }
 
-if (Get-Module -ListAvailable -Name posh-git) {
-  Import-Module posh-git
-}
 Set-PSReadlineKeyHandler -Key ctrl+d -Function ViExit
 Set-Alias ll Get-ChildItem
 
-oh-my-posh init pwsh | Invoke-Expression
+$OHMYPOSH_EXE = Get-Command "oh-my-posh" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
+if ($OHMYPOSH_EXE) {
+  &$OHMYPOSH_EXE init pwsh --config "$env:POSH_THEMES_PATH/agnoster.minimal.omp.json" | Invoke-Expression
+}
