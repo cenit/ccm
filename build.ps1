@@ -6,7 +6,7 @@
         build
         Created By: Stefano Sinigardi
         Created Date: February 18, 2019
-        Last Modified Date: January 27, 2023
+        Last Modified Date: February 20, 2023
 
 .DESCRIPTION
 Build tool using CMake, trying to properly setup the environment around compiler
@@ -29,6 +29,9 @@ Enable CUDNN feature
 .PARAMETER EnableOPENCV
 Enable OpenCV feature
 
+.PARAMETER ForceOpenCVVersion
+Force a specific OpenCV version
+
 .PARAMETER EnableOPENCV_CUDA
 Use a CUDA-enabled OpenCV build
 
@@ -40,6 +43,12 @@ Enable VTK feature
 
 .PARAMETER EnableTEST
 Enable TEST feature
+
+.PARAMETER EnableQT
+Enable Qt feature
+
+.PARAMETER ForceQTVersion
+Force a specific Qt version
 
 .PARAMETER BuildDocumentation
 Build documentation using Doxygen
@@ -137,10 +146,13 @@ param (
   [switch]$EnableCUDA = $false,
   [switch]$EnableCUDNN = $false,
   [switch]$EnableOPENCV = $false,
+  [Int32]$ForceOpenCVVersion = 0,
   [switch]$EnableOPENCV_CUDA = $false,
   [switch]$EnableOPENMP = $false,
   [switch]$EnableVTK = $false,
   [switch]$EnableTEST = $false,
+  [switch]$EnableQT = $false,
+  [Int32]$ForceQTVersion = 0,
   [switch]$BuildDocumentation = $false,
   [switch]$UseVCPKG = $false,
   [switch]$DoNotUpdateVCPKG = $false,
@@ -165,7 +177,7 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$build_ps1_version = "3.0.1"
+$build_ps1_version = "3.1.0"
 $script_name = $MyInvocation.MyCommand.Name
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
@@ -747,8 +759,28 @@ if ($EnableOPENMP) {
   $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_OPENMP=ON"
 }
 
+if ($ForceOpenCVVersion -gt 0 -and -not $EnableOPENCV) {
+  Write-Host "You requested OpenCV version $ForceOpenCVVersion, but OpenCV was not enabled. Enabling it for you" -ForegroundColor Yellow
+  $EnableOPENCV = $true
+}
+
 if ($EnableOPENCV) {
   $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_OPENCV=ON"
+}
+
+if (($ForceOpenCVVersion -eq 2) -and $UseVCPKG) {
+  Write-Host "You requested OpenCV version 2, so vcpkg will install that version" -ForegroundColor Yellow
+  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DVCPKG_USE_OPENCV2=ON"
+}
+
+if (($ForceOpenCVVersion -eq 3) -and $UseVCPKG) {
+  Write-Host "You requested OpenCV version 3, so vcpkg will install that version" -ForegroundColor Yellow
+  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DVCPKG_USE_OPENCV3=ON"
+}
+
+if (($ForceOpenCVVersion -eq 4) -and $UseVCPKG) {
+  Write-Host "You requested OpenCV version 4, so vcpkg will install that version" -ForegroundColor Yellow
+  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DVCPKG_USE_OPENCV4=ON"
 }
 
 if ($EnableOPENCV_CUDA) {
@@ -761,6 +793,25 @@ if ($EnableVTK) {
 
 if ($EnableTEST) {
   $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_TEST=ON"
+}
+
+if ($ForceQTVersion -gt 0 -and -not $EnableQT) {
+  Write-Host "You requested Qt version $ForceQTVersion, but Qt was not enabled. Enabling it for you" -ForegroundColor Yellow
+  $EnableQT = $true
+}
+
+if ($EnableQT) {
+  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_QT=ON"
+}
+
+if (($ForceQTVersion -eq 5) -and $UseVCPKG) {
+  Write-Host "You requested Qt version 5, so vcpkg will install that version" -ForegroundColor Yellow
+  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DVCPKG_USE_QT5=ON"
+}
+
+if (($ForceQTVersion -eq 6) -and $UseVCPKG) {
+  Write-Host "You requested Qt version 6, so vcpkg will install that version" -ForegroundColor Yellow
+  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DVCPKG_USE_QT6=ON"
 }
 
 if ($BuildDocumentation) {
@@ -827,6 +878,15 @@ $proc.WaitForExit()
 $exitCode = $proc.ExitCode
 if (-Not ($exitCode -eq 0)) {
   MyThrow("Build failed! Exited with error code $exitCode.")
+}
+
+if ($IsWindows -and $EnableQT -and $UseVCPKG -and -Not $DisableDLLcopy) {
+  if($BuildDebug) {
+    Write-Host "Adding jpeg dlls to debug folder to circumvent winqtdeploy bug"
+    Copy-Item -Path "vcpkg_installed/$env:VCPKG_DEFAULT_TRIPLET/debug/bin/jpeg*.dll" -Destination "$DebugInstallPrefix/bin" -Recurse
+  }
+  Write-Host "Adding jpeg dlls to release folder to circumvent winqtdeploy bug"
+  Copy-Item -Path "vcpkg_installed/$env:VCPKG_DEFAULT_TRIPLET/bin/jpeg*.dll" -Destination "$ReleaseInstallPrefix/bin" -Recurse
 }
 
 Pop-Location

@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 #>
 
-$utils_psm1_version = "0.2.0"
+$utils_psm1_version = "0.3.0"
 $IsWindowsPowerShell = switch ( $PSVersionTable.PSVersion.Major ) {
   5 { $true }
   4 { $true }
@@ -37,12 +37,18 @@ if ($IsWindowsPowerShell -or $IsWindows) {
 }
 
 Push-Location $PSScriptRoot
-$IsInGitSubmoduleString = $(git rev-parse --show-superproject-working-tree 2> $null)
-if ($IsInGitSubmoduleString.Length -eq 0) {
-  $IsInGitSubmodule = $false
+$GIT_EXE = Get-Command "git" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
+if ($GIT_EXE) {
+  $IsInGitSubmoduleString = $(git rev-parse --show-superproject-working-tree 2> $null)
+  if ($IsInGitSubmoduleString.Length -eq 0) {
+    $IsInGitSubmodule = $false
+  }
+  else {
+    $IsInGitSubmodule = $true
+  }
 }
 else {
-  $IsInGitSubmodule = $true
+  $IsInGitSubmodule = $false
 }
 Pop-Location
 
@@ -59,7 +65,7 @@ function getProgramFiles32bit() {
   return $out
 }
 
-function getLatestVisualStudioWithDesktopWorkloadPath() {
+function getLatestVisualStudioWithDesktopWorkloadPath([bool]$required = $true) {
   $programFiles = getProgramFiles32bit
   $vswhereExe = "$programFiles\Microsoft Visual Studio\Installer\vswhere.exe"
   if (Test-Path $vswhereExe) {
@@ -85,16 +91,28 @@ function getLatestVisualStudioWithDesktopWorkloadPath() {
       }
     }
     if (!$installationPath) {
-      MyThrow("Could not locate any installation of Visual Studio")
+      if ($required) {
+        MyThrow("Could not locate any installation of Visual Studio")
+      }
+      else {
+        Write-Host "Could not locate any installation of Visual Studio" -ForegroundColor Red
+        return $null
+      }
     }
   }
   else {
-    MyThrow("Could not locate vswhere at $vswhereExe")
+    if ($required) {
+      MyThrow("Could not locate vswhere at $vswhereExe")
+    }
+    else {
+      Write-Host "Could not locate vswhere at $vswhereExe" -ForegroundColor Red
+      return $null
+    }
   }
   return $installationPath
 }
 
-function getLatestVisualStudioWithDesktopWorkloadVersion() {
+function getLatestVisualStudioWithDesktopWorkloadVersion([bool]$required = $true) {
   $programFiles = getProgramFiles32bit
   $vswhereExe = "$programFiles\Microsoft Visual Studio\Installer\vswhere.exe"
   if (Test-Path $vswhereExe) {
@@ -120,11 +138,23 @@ function getLatestVisualStudioWithDesktopWorkloadVersion() {
       }
     }
     if (!$installationVersion) {
-      MyThrow("Could not locate any installation of Visual Studio")
+      if ($required) {
+        MyThrow("Could not locate any installation of Visual Studio")
+      }
+      else {
+        Write-Host "Could not locate any installation of Visual Studio" -ForegroundColor Red
+        return $null
+      }
     }
   }
   else {
-    MyThrow("Could not locate vswhere at $vswhereExe")
+    if ($required) {
+      MyThrow("Could not locate vswhere at $vswhereExe")
+    }
+    else {
+      Write-Host "Could not locate vswhere at $vswhereExe" -ForegroundColor Red
+      return $null
+    }
   }
   return $installationVersion
 }

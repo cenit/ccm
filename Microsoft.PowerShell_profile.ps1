@@ -113,7 +113,7 @@ if ( $IsWindows -Or $IsWindowsPowershell) {
 
   $CL_EXE = Get-Command "cl" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
   if ((-Not $CL_EXE) -or ($CL_EXE -match "HostX86\\x86") -or ($CL_EXE -match "HostX64\\x86")) {
-    $vsfound = getLatestVisualStudioWithDesktopWorkloadPath
+    $vsfound = getLatestVisualStudioWithDesktopWorkloadPath($false)
     Write-Host "Found VS in ${vsfound}"
     Push-Location "${vsfound}\Common7\Tools"
     cmd.exe /c "VsDevCmd.bat -arch=x64 & set" |
@@ -152,6 +152,7 @@ if ( $IsWindows -Or $IsWindowsPowershell) {
 Set-PSReadlineKeyHandler -Key ctrl+d -Function ViExit
 Set-Alias ll Get-ChildItem
 
+$Host.UI.RawUI.WindowTitle = "$pwd"
 $OHMYPOSH_EXE = Get-Command "oh-my-posh" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
 if ($OHMYPOSH_EXE) {
   &$OHMYPOSH_EXE init pwsh --config "$env:POSH_THEMES_PATH/agnoster.minimal.omp.json" | Invoke-Expression
