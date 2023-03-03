@@ -413,9 +413,8 @@ else {
   Write-Host "Using git from ${GIT_EXE}"
 }
 
-$GitRepoPath = Resolve-Path "$PSCustomScriptRoot/.git"
-$GitModulesPath = Resolve-Path "$PSCustomScriptRoot/.gitmodules"
-
+$GitRepoPath = Resolve-Path "$PSCustomScriptRoot/.git" -ErrorAction SilentlyContinue
+$GitModulesPath = Resolve-Path "$PSCustomScriptRoot/.gitmodules" -ErrorAction SilentlyContinue
 if (Test-Path "$GitRepoPath") {
   Write-Host "This tool has been added as a submodule in a repo cloned with git and which supports self-updating mechanism"
   if ($DoNotUpdateTOOL) {
