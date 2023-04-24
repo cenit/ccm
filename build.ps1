@@ -89,6 +89,9 @@ Force clean up of the local vcpkg binary cache before building
 .PARAMETER ForceVCPKGBuildtreesRemoval
 Force clean up of vcpkg buildtrees temp folder at the end of the script
 
+.PARAMETER ForceVCPKGBuildtreesPath
+Force using a different buildtrees dir for vcpkg
+
 .PARAMETER ForceVCPKGPackagesRemoval
 Force clean up of vcpkg packages folder at the end of the script
 
@@ -166,6 +169,7 @@ param (
   [switch]$ForceStaticLib = $false,
   [switch]$ForceVCPKGCacheRemoval = $false,
   [switch]$ForceVCPKGBuildtreesRemoval = $false,
+  [string]$ForceVCPKGBuildtreesPath = "",
   [switch]$ForceVCPKGPackagesRemoval = $false,
   [switch]$ForceSetupVS = $false,
   [switch]$ForceCMakeFromVS = $false,
@@ -177,7 +181,7 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$build_ps1_version = "3.1.0"
+$build_ps1_version = "3.2.0"
 $script_name = $MyInvocation.MyCommand.Name
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
@@ -818,6 +822,15 @@ if ($BuildDocumentation) {
   $AdditionalBuildSetup = $AdditionalBuildSetup + " -DBUILD_DOCUMENTATION=ON "
 }
 
+if ($ForceVCPKGBuildtreesPath -ne "") {
+  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DVCPKG_INSTALL_OPTIONS=`"--x-buildtrees-root=$ForceVCPKGBuildtreesPath`" "
+  New-Item -Path $ForceVCPKGBuildtreesPath -ItemType directory -Force | Out-Null
+  $vcpkgbuildtreespath = "$ForceVCPKGBuildtreesPath"
+}
+else {
+  $vcpkgbuildtreespath = "$vcpkg_path/buildtrees"
+}
+
 if ($BuildDebug) {
   $debug_build_folder = "$PSCustomScriptRoot/build_debug"
   if (-Not $DoNotDeleteBuildFolder) {
@@ -896,7 +909,6 @@ if ($ForceVCPKGBuildtreesRemoval -and (-Not $UseVCPKG)) {
   Write-Host "VCPKG is not enabled, so local vcpkg buildtrees folder will not be deleted even if requested" -ForegroundColor Yellow
 }
 
-$vcpkgbuildtreespath = "$vcpkg_path/buildtrees"
 if ($UseVCPKG -and $ForceVCPKGBuildtreesRemoval) {
   Write-Host "Removing local vcpkg buildtrees folder from $vcpkgbuildtreespath" -ForegroundColor Yellow
   Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $vcpkgbuildtreespath

@@ -36,6 +36,9 @@ if ($IsWindowsPowerShell -or $IsWindows) {
   $ExecutableSuffix = ".exe"
 }
 
+$64bitPwsh = $([Environment]::Is64BitProcess)
+$64bitOS = $([Environment]::Is64BitOperatingSystem)
+
 Push-Location $PSScriptRoot
 $GIT_EXE = Get-Command "git" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
 if ($GIT_EXE) {
@@ -331,6 +334,8 @@ Function CopyTexFile ($MyFile) {
 Export-ModuleMember -Variable utils_psm1_version
 Export-ModuleMember -Variable IsWindowsPowerShell
 Export-ModuleMember -Variable IsInGitSubmodule
+Export-ModuleMember -Variable 64bitPwsh
+Export-ModuleMember -Variable 64bitOS
 Export-ModuleMember -Function getProgramFiles32bit
 Export-ModuleMember -Function getLatestVisualStudioWithDesktopWorkloadPath
 Export-ModuleMember -Function getLatestVisualStudioWithDesktopWorkloadVersion

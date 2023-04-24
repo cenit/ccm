@@ -1,4 +1,5 @@
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
+$Verbose = $false
 
 Function dos2unix {
   Param (
@@ -38,7 +39,7 @@ Function unix2dos {
 if ( $IsWindows -Or $IsWindowsPowershell) {
   function gg++() {
     $compiler = Get-Command cl.exe -ErrorAction SilentlyContinue
-    If ( $compiler -eq $null ) {
+    If ( $null -eq $compiler ) {
       Write-Host "Unable to find MSVC compiler" -ForegroundColor Red
       exit
     }
@@ -114,7 +115,9 @@ if ( $IsWindows -Or $IsWindowsPowershell) {
   $CL_EXE = Get-Command "cl" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
   if ((-Not $CL_EXE) -or ($CL_EXE -match "HostX86\\x86") -or ($CL_EXE -match "HostX64\\x86")) {
     $vsfound = getLatestVisualStudioWithDesktopWorkloadPath($false)
-    Write-Host "Found VS in ${vsfound}"
+    if($Verbose) {
+      Write-Host "Found VS in ${vsfound}"
+    }
     Push-Location "${vsfound}\Common7\Tools"
     cmd.exe /c "VsDevCmd.bat -arch=x64 & set" |
     ForEach-Object {
@@ -123,28 +126,38 @@ if ( $IsWindows -Or $IsWindowsPowershell) {
       }
     }
     Pop-Location
-    Write-Host "Visual Studio Command Prompt variables set"
+    if($Verbose) {
+      Write-Host "Visual Studio Command Prompt variables set"
+    }
   }
 
   $NVCC_EXE = Get-Command "nvcc" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
   if (-Not $NVCC_EXE) {
     if (Test-Path env:CUDA_PATH) {
       $env:PATH += ";${env:CUDA_PATH}/bin"
-      Write-Host "Found cuda in ${env:CUDA_PATH}"
+      if($Verbose) {
+        Write-Host "Found cuda in ${env:CUDA_PATH}"
+      }
     }
     else {
-      Write-Host "Unable to find CUDA, if necessary please install it or define a CUDA_PATH env variable pointing to the install folder" -ForegroundColor Yellow
+      if($Verbose) {
+        Write-Host "Unable to find CUDA, if necessary please install it or define a CUDA_PATH env variable pointing to the install folder" -ForegroundColor Yellow
+      }
     }
   }
 
   if (Test-Path env:CUDA_PATH) {
     if (-Not(Test-Path env:CUDA_TOOLKIT_ROOT_DIR)) {
       $env:CUDA_TOOLKIT_ROOT_DIR = "${env:CUDA_PATH}"
-      Write-Host "Added missing env variable CUDA_TOOLKIT_ROOT_DIR" -ForegroundColor Yellow
+      if($Verbose) {
+        Write-Host "Added missing env variable CUDA_TOOLKIT_ROOT_DIR" -ForegroundColor Yellow
+      }
     }
     if (-Not(Test-Path env:CUDACXX)) {
       $env:CUDACXX = "${env:CUDA_PATH}/bin/nvcc"
-      Write-Host "Added missing env variable CUDACXX" -ForegroundColor Yellow
+      if($Verbose) {
+        Write-Host "Added missing env variable CUDACXX" -ForegroundColor Yellow
+      }
     }
   }
 }
