@@ -44,12 +44,13 @@ SOFTWARE.
 #>
 
 param (
+  [switch]$DisableCCMUpdate = $false,
   [switch]$DisableInteractive = $false
 )
 
 $global:DisableInteractive = $DisableInteractive
 
-$update_all_ccm_refs_ps1_version = "0.0.4"
+$update_all_ccm_refs_ps1_version = "1.0.0"
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
 
@@ -69,17 +70,19 @@ Get-ChildItem $PSScriptRoot/.. -Directory | ForEach-Object {
   git pull
   git submodule update --recursive
 
-  $CCMRepoArray = @("cmake", "ci", "ccm") | ForEach-Object { Get-ChildItem -Directory . -Filter $_ }
-  ForEach ($CCMRepo in $CCMRepoArray) {
-    $CCMRepoLeaf = Split-Path $CCMRepo -Leaf
-    Write-Host "Updating ccm submodule ($CCMRepoLeaf) if necessary"
-    Set-Location "$CCMRepo"
-    git checkout master
-    git pull
-    Set-Location ..
-    git add $CCMRepoLeaf
-    git commit -m "Update ccm submodule"
-    git push
+  if (-Not $DisableCCMUpdate) {
+    $CCMRepoArray = @("cmake", "ci", "ccm") | ForEach-Object { Get-ChildItem -Directory . -Filter $_ }
+    ForEach ($CCMRepo in $CCMRepoArray) {
+      $CCMRepoLeaf = Split-Path $CCMRepo -Leaf
+      Write-Host "Updating ccm submodule ($CCMRepoLeaf) if necessary"
+      Set-Location "$CCMRepo"
+      git checkout master
+      git pull
+      Set-Location ..
+      git add $CCMRepoLeaf
+      git commit -m "Update ccm submodule"
+      git push
+    }
   }
 
   Pop-Location

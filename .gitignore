@@ -16,5 +16,6 @@ Thumbs.db
 *.ini
 *.exe
 *.zip
+*.iso
 aria2*/
 7z*/

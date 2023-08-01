@@ -6,7 +6,7 @@
         build
         Created By: Stefano Sinigardi
         Created Date: February 18, 2019
-        Last Modified Date: February 20, 2023
+        Last Modified Date: August 1, 2023
 
 .DESCRIPTION
 Build tool using CMake, trying to properly setup the environment around compiler
@@ -54,7 +54,10 @@ Force a specific Qt version
 Build documentation using Doxygen
 
 .PARAMETER UseVCPKG
-Use VCPKG to build tool dependencies. Clone it if not already found on system
+Use vcpkg to build tool dependencies. Clone it if not already found on system
+
+.PARAMETER ForceLocalVCPKG
+Use a copy of vcpkg in a subfolder of the tool folder, even if there might be another copy already provided by the system
 
 .PARAMETER DoNotUpdateVCPKG
 Do not update vcpkg before running the build (valid only if vcpkg is cloned by this script or the version found on the system is git-enabled)
@@ -103,6 +106,9 @@ Forces usage of CMake from Visual Studio instead of the system-wide/user install
 
 .PARAMETER ForceNinjaFromVS
 Forces usage of Ninja from Visual Studio instead of the system-wide/user installed one
+
+.PARAMETER Use32bitTriplet
+Use 32 bit triplet for target build (windows-only)
 
 .PARAMETER ForceGCCVersion
 Force a specific GCC version
@@ -158,6 +164,7 @@ param (
   [Int32]$ForceQTVersion = 0,
   [switch]$BuildDocumentation = $false,
   [switch]$UseVCPKG = $false,
+  [switch]$ForceLocalVCPKG = $false,
   [switch]$DoNotUpdateVCPKG = $false,
   [string]$VCPKGSuffix = "",
   [string]$VCPKGFork = "",
@@ -174,6 +181,7 @@ param (
   [switch]$ForceSetupVS = $false,
   [switch]$ForceCMakeFromVS = $false,
   [switch]$ForceNinjaFromVS = $false,
+  [switch]$Use32bitTriplet = $false,
   [Int32]$ForceGCCVersion = 0,
   [Int32]$NumberOfBuildWorkers = 8,
   [string]$AdditionalBuildSetup = ""  # "-DCMAKE_CUDA_ARCHITECTURES=30"
@@ -181,7 +189,7 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$build_ps1_version = "3.2.0"
+$build_ps1_version = "3.4.0"
 $script_name = $MyInvocation.MyCommand.Name
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
@@ -232,6 +240,10 @@ elseif ($IsWindows -or $IsWindowsPowerShell) {
   $bootstrap_ext = ".bat"
   $exe_ext = ".exe"
 }
+if ($ForceLocalVCPKG -And -Not $UseVCPKG) {
+  $UseVCPKG = $true
+  Write-Host "ForceLocalVCPKG was true but UseVCPKG was false, setting UseVCPKG to true"
+}
 if ($UseVCPKG) {
   Write-Host "vcpkg bootstrap script: bootstrap-vcpkg${bootstrap_ext}"
 }
@@ -255,13 +267,27 @@ $vcpkg_triplet_set_by_this_script = $false
 $vcpkg_host_triplet_set_by_this_script = $false
 
 if (($IsWindows -or $IsWindowsPowerShell) -and (-Not $env:VCPKG_DEFAULT_TRIPLET)) {
-  if($BuildDebug) {
-    $env:VCPKG_DEFAULT_TRIPLET = "x64-windows"
+  if ($Use32bitTriplet) {
+    if (-Not $BuildDebug) {
+      $BuildDebug = $true
+      Write-Host "Warning: when building for 32bit windows target, only builds with also debug version are possible. Debug has been enabled on your behalf!" -ForegroundColor Yellow
+    }
+    if (-Not $DoNotUseNinja) {
+      $DoNotUseNinja = $true
+      Write-Host "Warning: when building for 32bit windows target, only msbuild can be used and ninja will be disabled. Doing that for you!" -ForegroundColor Yellow
+    }
+    $env:VCPKG_DEFAULT_TRIPLET = "x86-windows"
     $vcpkg_triplet_set_by_this_script = $true
   }
   else {
-    $env:VCPKG_DEFAULT_TRIPLET = "x64-windows-release"
-    $vcpkg_triplet_set_by_this_script = $true
+    if($BuildDebug) {
+      $env:VCPKG_DEFAULT_TRIPLET = "x64-windows"
+      $vcpkg_triplet_set_by_this_script = $true
+    }
+    else {
+      $env:VCPKG_DEFAULT_TRIPLET = "x64-windows-release"
+      $vcpkg_triplet_set_by_this_script = $true
+    }
   }
 }
 if (($IsWindows -or $IsWindowsPowerShell) -and (-Not $env:VCPKG_DEFAULT_HOST_TRIPLET)) {
@@ -297,13 +323,15 @@ if ($IsMacOS -and (-Not $env:VCPKG_DEFAULT_HOST_TRIPLET)) {
 }
 
 if ($IsLinux -and (-Not $env:VCPKG_DEFAULT_TRIPLET)) {
-  if ($BuildDebug) {
-    $env:VCPKG_DEFAULT_TRIPLET = "x64-linux"
-    $vcpkg_triplet_set_by_this_script = $true
-  }
-  else {
-    $env:VCPKG_DEFAULT_TRIPLET = "x64-linux-release"
-    $vcpkg_triplet_set_by_this_script = $true
+  if ($true) {
+    if ($BuildDebug) {
+      $env:VCPKG_DEFAULT_TRIPLET = "x64-linux"
+      $vcpkg_triplet_set_by_this_script = $true
+    }
+    else {
+      $env:VCPKG_DEFAULT_TRIPLET = "x64-linux-release"
+      $vcpkg_triplet_set_by_this_script = $true
+    }
   }
 }
 if ($IsLinux -and (-Not $env:VCPKG_DEFAULT_HOST_TRIPLET)) {
@@ -526,28 +554,30 @@ if (-Not $DoNotUseNinja) {
 
 $vcpkg_root_set_by_this_script = $false
 
-if ((Test-Path env:VCPKG_ROOT) -and $UseVCPKG -and $VCPKGSuffix -eq "") {
-  $vcpkg_path = "$env:VCPKG_ROOT"
-  $vcpkg_path = Resolve-Path $vcpkg_path
-  Write-Host "Found vcpkg in VCPKG_ROOT: $vcpkg_path"
-  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_VCPKG_INTEGRATION:BOOL=ON"
-}
-elseif (-not($null -eq ${env:WORKSPACE}) -and (Test-Path "${env:WORKSPACE}/vcpkg${VCPKGSuffix}") -and $UseVCPKG) {
-  $vcpkg_path = "${env:WORKSPACE}/vcpkg${VCPKGSuffix}"
-  $vcpkg_path = Resolve-Path $vcpkg_path
-  $env:VCPKG_ROOT = "$vcpkg_path"
-  $vcpkg_root_set_by_this_script = $true
-  Write-Host "Found vcpkg in WORKSPACE/vcpkg${VCPKGSuffix}: $vcpkg_path"
-  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_VCPKG_INTEGRATION:BOOL=ON"
-}
-elseif (-not($null -eq ${RUNVCPKG_VCPKG_ROOT_OUT})) {
-  if ((Test-Path "${RUNVCPKG_VCPKG_ROOT_OUT}") -and $UseVCPKG) {
-    $vcpkg_path = "${RUNVCPKG_VCPKG_ROOT_OUT}"
+if ($UseVCPKG -And -Not $ForceLocalVCPKG) {
+  if ((Test-Path env:VCPKG_ROOT) -and $VCPKGSuffix -eq "") {
+    $vcpkg_path = "$env:VCPKG_ROOT"
+    $vcpkg_path = Resolve-Path $vcpkg_path
+    Write-Host "Found vcpkg in VCPKG_ROOT: $vcpkg_path"
+    $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_VCPKG_INTEGRATION:BOOL=ON"
+  }
+  elseif (-not($null -eq ${env:WORKSPACE}) -and (Test-Path "${env:WORKSPACE}/vcpkg${VCPKGSuffix}")) {
+    $vcpkg_path = "${env:WORKSPACE}/vcpkg${VCPKGSuffix}"
     $vcpkg_path = Resolve-Path $vcpkg_path
     $env:VCPKG_ROOT = "$vcpkg_path"
     $vcpkg_root_set_by_this_script = $true
-    Write-Host "Found vcpkg in RUNVCPKG_VCPKG_ROOT_OUT: $vcpkg_path"
+    Write-Host "Found vcpkg in WORKSPACE/vcpkg${VCPKGSuffix}: $vcpkg_path"
     $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_VCPKG_INTEGRATION:BOOL=ON"
+  }
+  elseif (-not($null -eq ${RUNVCPKG_VCPKG_ROOT_OUT})) {
+    if ((Test-Path "${RUNVCPKG_VCPKG_ROOT_OUT}") -and $UseVCPKG) {
+      $vcpkg_path = "${RUNVCPKG_VCPKG_ROOT_OUT}"
+      $vcpkg_path = Resolve-Path $vcpkg_path
+      $env:VCPKG_ROOT = "$vcpkg_path"
+      $vcpkg_root_set_by_this_script = $true
+      Write-Host "Found vcpkg in RUNVCPKG_VCPKG_ROOT_OUT: $vcpkg_path"
+      $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_VCPKG_INTEGRATION:BOOL=ON"
+    }
   }
 }
 elseif ($UseVCPKG) {
@@ -700,21 +730,27 @@ if (-Not $DoNotSetupVS) {
   if ($DoNotUseNinja) {
     $debugConfig = " --config Debug "
     $releaseConfig = " --config Release "
+    if ($Use32bitTriplet) {
+      $targetArchitecture = "`"Win32`""
+    }
+    else {
+      $targetArchitecture = "`"x64`""
+    }
     if ($tokens[0] -eq "14") {
       $generator = "Visual Studio 14 2015"
-      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A `"x64`""
+      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A $targetArchitecture"
     }
     elseif ($tokens[0] -eq "15") {
       $generator = "Visual Studio 15 2017"
-      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A `"x64`""
+      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A $targetArchitecture"
     }
     elseif ($tokens[0] -eq "16") {
       $generator = "Visual Studio 16 2019"
-      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A `"x64`""
+      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A $targetArchitecture"
     }
     elseif ($tokens[0] -eq "17") {
       $generator = "Visual Studio 17 2022"
-      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A `"x64`""
+      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A $targetArchitecture"
     }
     else {
       MyThrow("Unknown Visual Studio version, unsupported configuration")
