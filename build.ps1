@@ -552,6 +552,87 @@ if (-Not $DoNotUseNinja) {
   }
 }
 
+if (-Not $DoNotSetupVS) {
+  $CL_EXE = Get-Command "cl" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
+  if ((-Not $CL_EXE) -or ($CL_EXE -match "HostX86\\x86") -or ($CL_EXE -match "HostX64\\x86")) {
+    $vsfound = getLatestVisualStudioWithDesktopWorkloadPath
+    Write-Host "Found VS in ${vsfound}"
+    Push-Location "${vsfound}/Common7/Tools"
+    cmd.exe /c "VsDevCmd.bat -arch=x64 & set" |
+    ForEach-Object {
+      if ($_ -match "=") {
+        $v = $_.split("="); Set-Item -force -path "ENV:\$($v[0])"  -value "$($v[1])"
+      }
+    }
+    Pop-Location
+    Write-Host "Visual Studio Command Prompt variables set"
+  }
+
+  $tokens = getLatestVisualStudioWithDesktopWorkloadVersion
+  $tokens = $tokens.split('.')
+  if ($DoNotUseNinja) {
+    $debugConfig = " --config Debug "
+    $releaseConfig = " --config Release "
+    if ($Use32bitTriplet) {
+      $targetArchitecture = "`"Win32`""
+    }
+    else {
+      $targetArchitecture = "`"x64`""
+    }
+    if ($tokens[0] -eq "14") {
+      $generator = "Visual Studio 14 2015"
+      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A $targetArchitecture"
+    }
+    elseif ($tokens[0] -eq "15") {
+      $generator = "Visual Studio 15 2017"
+      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A $targetArchitecture"
+    }
+    elseif ($tokens[0] -eq "16") {
+      $generator = "Visual Studio 16 2019"
+      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A $targetArchitecture"
+    }
+    elseif ($tokens[0] -eq "17") {
+      $generator = "Visual Studio 17 2022"
+      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A $targetArchitecture"
+    }
+    else {
+      MyThrow("Unknown Visual Studio version, unsupported configuration")
+    }
+  }
+}
+if ($DoNotSetupVS -and $DoNotUseNinja) {
+  $generator = "Unix Makefiles"
+}
+Write-Host "Setting up environment to use CMake generator: $generator"
+
+if (-Not $IsMacOS -and $EnableCUDA) {
+  $NVCC_EXE = Get-Command "nvcc" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
+  if (-Not $NVCC_EXE) {
+    if (Test-Path env:CUDA_PATH) {
+      $env:PATH = '{0}{1}{2}' -f $env:PATH, [IO.Path]::PathSeparator, "${env:CUDA_PATH}/bin"
+      Write-Host "Found cuda in ${env:CUDA_PATH}"
+    }
+    else {
+      Write-Host "Unable to find CUDA, if necessary please install it or define a CUDA_PATH env variable pointing to the install folder" -ForegroundColor Yellow
+    }
+  }
+
+  if (Test-Path env:CUDA_PATH) {
+    if (-Not(Test-Path env:CUDA_TOOLKIT_ROOT_DIR)) {
+      $env:CUDA_TOOLKIT_ROOT_DIR = "${env:CUDA_PATH}"
+      Write-Host "Added missing env variable CUDA_TOOLKIT_ROOT_DIR" -ForegroundColor Yellow
+    }
+    if (-Not(Test-Path env:CUDACXX)) {
+      $env:CUDACXX = "${env:CUDA_PATH}/bin/nvcc"
+      Write-Host "Added missing env variable CUDACXX" -ForegroundColor Yellow
+    }
+  }
+  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_CUDA=ON"
+  if ($EnableCUDNN) {
+    $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_CUDNN=ON"
+  }
+}
+
 $vcpkg_root_set_by_this_script = $false
 
 if ($UseVCPKG -And -Not $ForceLocalVCPKG) {
@@ -580,7 +661,7 @@ if ($UseVCPKG -And -Not $ForceLocalVCPKG) {
     }
   }
 }
-elseif ($UseVCPKG) {
+if (($null -eq $vcpkg_path) -and $UseVCPKG) {
   if (-Not (Test-Path "$PWD/vcpkg${VCPKGSuffix}")) {
     $proc = Start-Process -NoNewWindow -PassThru -FilePath $GIT_EXE -ArgumentList "clone https://github.com/microsoft/vcpkg vcpkg${VCPKGSuffix}"
     $handle = $proc.Handle
@@ -707,87 +788,6 @@ if ($UseVCPKG -and $ForceVCPKGCacheRemoval) {
   }
   Write-Host "Removing local vcpkg binary cache from $vcpkgbinarycachepath" -ForegroundColor Yellow
   Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $vcpkgbinarycachepath
-}
-
-if (-Not $DoNotSetupVS) {
-  $CL_EXE = Get-Command "cl" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
-  if ((-Not $CL_EXE) -or ($CL_EXE -match "HostX86\\x86") -or ($CL_EXE -match "HostX64\\x86")) {
-    $vsfound = getLatestVisualStudioWithDesktopWorkloadPath
-    Write-Host "Found VS in ${vsfound}"
-    Push-Location "${vsfound}/Common7/Tools"
-    cmd.exe /c "VsDevCmd.bat -arch=x64 & set" |
-    ForEach-Object {
-      if ($_ -match "=") {
-        $v = $_.split("="); Set-Item -force -path "ENV:\$($v[0])"  -value "$($v[1])"
-      }
-    }
-    Pop-Location
-    Write-Host "Visual Studio Command Prompt variables set"
-  }
-
-  $tokens = getLatestVisualStudioWithDesktopWorkloadVersion
-  $tokens = $tokens.split('.')
-  if ($DoNotUseNinja) {
-    $debugConfig = " --config Debug "
-    $releaseConfig = " --config Release "
-    if ($Use32bitTriplet) {
-      $targetArchitecture = "`"Win32`""
-    }
-    else {
-      $targetArchitecture = "`"x64`""
-    }
-    if ($tokens[0] -eq "14") {
-      $generator = "Visual Studio 14 2015"
-      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A $targetArchitecture"
-    }
-    elseif ($tokens[0] -eq "15") {
-      $generator = "Visual Studio 15 2017"
-      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A $targetArchitecture"
-    }
-    elseif ($tokens[0] -eq "16") {
-      $generator = "Visual Studio 16 2019"
-      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A $targetArchitecture"
-    }
-    elseif ($tokens[0] -eq "17") {
-      $generator = "Visual Studio 17 2022"
-      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A $targetArchitecture"
-    }
-    else {
-      MyThrow("Unknown Visual Studio version, unsupported configuration")
-    }
-  }
-}
-if ($DoNotSetupVS -and $DoNotUseNinja) {
-  $generator = "Unix Makefiles"
-}
-Write-Host "Setting up environment to use CMake generator: $generator"
-
-if (-Not $IsMacOS -and $EnableCUDA) {
-  $NVCC_EXE = Get-Command "nvcc" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
-  if (-Not $NVCC_EXE) {
-    if (Test-Path env:CUDA_PATH) {
-      $env:PATH = '{0}{1}{2}' -f $env:PATH, [IO.Path]::PathSeparator, "${env:CUDA_PATH}/bin"
-      Write-Host "Found cuda in ${env:CUDA_PATH}"
-    }
-    else {
-      Write-Host "Unable to find CUDA, if necessary please install it or define a CUDA_PATH env variable pointing to the install folder" -ForegroundColor Yellow
-    }
-  }
-
-  if (Test-Path env:CUDA_PATH) {
-    if (-Not(Test-Path env:CUDA_TOOLKIT_ROOT_DIR)) {
-      $env:CUDA_TOOLKIT_ROOT_DIR = "${env:CUDA_PATH}"
-      Write-Host "Added missing env variable CUDA_TOOLKIT_ROOT_DIR" -ForegroundColor Yellow
-    }
-    if (-Not(Test-Path env:CUDACXX)) {
-      $env:CUDACXX = "${env:CUDA_PATH}/bin/nvcc"
-      Write-Host "Added missing env variable CUDACXX" -ForegroundColor Yellow
-    }
-  }
-  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_CUDA=ON"
-  if ($EnableCUDNN) {
-    $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_CUDNN=ON"
-  }
 }
 
 if (-Not $DisableDLLcopy) {
