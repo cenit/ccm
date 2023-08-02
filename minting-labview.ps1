@@ -7,7 +7,7 @@
         minting-labview
         Created By: Stefano Sinigardi
         Created Date: August 9, 2022
-        Last Modified Date: January 31, 2023
+        Last Modified Date: August 2, 2023
 
 .DESCRIPTION
 Manage unattended LabVIEW install/uninstall procedures for different specified LabVIEW versions (IDE or RunTime)
@@ -77,7 +77,7 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$minting_labview_version = "4.1.0"
+$minting_labview_version = "4.1.1"
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
 
@@ -129,11 +129,11 @@ if (($LabVIEWVersion -eq "NIPKG") -or $UninstallAll) {
   $OpenPortsOnFirewall = $false
   $installers = @(
     [LabVIEWInstaller]@{
-      FileName            = "NIPackageManager23.3.0.exe";
+      FileName            = "NIPackageManager23.5.0.exe";
       Legacy              = $false;
       Requires7Zip        = $false;
       AvailableOnInternet = $true;
-      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-package-manager/installers/NIPackageManager23.3.0.exe"
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-package-manager/installers/NIPackageManager23.5.0.exe"
     }
   )
 }
@@ -1306,14 +1306,12 @@ foreach ($installer in $installers) {
   Write-Host "Finished installing from $InstallerBasePath/$($installer.FileName)"
 
   if ($UninstallAll) {
+    $setupPath = Get-ChildItem "C:/Program Files/National Instruments/NI Package Manager/nipkg.exe"
+    $setupArgs = " remove --force-essential --force-locked --yes "
     if ($DryRun) {
-      $setupPath = "C:/Program Files/National Instruments/NI Package Manager/nipkg.exe"
-      $setupArgs = " remove --force-essential --force-locked --yes "
       Write-Host "DryRun uninstall: $setupPath $setupArgs" -ForegroundColor Yellow
     }
     else {
-      $setupPath = Get-ChildItem "C:/Program Files/National Instruments/NI Package Manager/nipkg.exe"
-      $setupArgs = " remove --force-essential --force-locked --yes "
       $proc = Start-Process -NoNewWindow -PassThru -FilePath $setupPath -ArgumentList $setupArgs
       $handle = $proc.Handle
       $proc.WaitForExit()
