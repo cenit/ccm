@@ -6,7 +6,7 @@
         build
         Created By: Stefano Sinigardi
         Created Date: February 18, 2019
-        Last Modified Date: August 10, 2023
+        Last Modified Date: August 31, 2023
 
 .DESCRIPTION
 Build tool using CMake, trying to properly setup the environment around compiler
@@ -110,6 +110,9 @@ Forces usage of Ninja from Visual Studio instead of the system-wide/user install
 .PARAMETER Use32bitTriplet
 Use 32 bit triplet for target build (windows-only)
 
+.PARAMETER BuildInstaller
+Build an installer using CPack
+
 .PARAMETER ForceGCCVersion
 Force a specific GCC version
 
@@ -182,6 +185,7 @@ param (
   [switch]$ForceCMakeFromVS = $false,
   [switch]$ForceNinjaFromVS = $false,
   [switch]$Use32bitTriplet = $false,
+  [switch]$BuildInstaller = $false,
   [Int32]$ForceGCCVersion = 0,
   [Int32]$NumberOfBuildWorkers = 8,
   [string]$AdditionalBuildSetup = ""  # "-DCMAKE_CUDA_ARCHITECTURES=30"
@@ -189,7 +193,7 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$build_ps1_version = "3.4.1"
+$build_ps1_version = "3.5.0"
 $script_name = $MyInvocation.MyCommand.Name
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
@@ -448,7 +452,7 @@ else {
 $GitRepoPath = Resolve-Path "$PSCustomScriptRoot/.git" -ErrorAction SilentlyContinue
 $GitModulesPath = Resolve-Path "$PSCustomScriptRoot/.gitmodules" -ErrorAction SilentlyContinue
 if (Test-Path "$GitRepoPath") {
-  Write-Host "This tool has been added as a submodule in a repo cloned with git and which supports self-updating mechanism"
+  Write-Host "This tool has been cloned with git and supports self-updating mechanism"
   if ($DoNotUpdateTOOL) {
     Write-Host "This tool will not self-update sources" -ForegroundColor Yellow
   }
@@ -926,6 +930,17 @@ if ($IsWindows -and $EnableQT -and $UseVCPKG -and -Not $DisableDLLcopy) {
   }
   Write-Host "Adding jpeg dlls to release folder to circumvent winqtdeploy bug"
   Copy-Item -Path "vcpkg_installed/$env:VCPKG_DEFAULT_TRIPLET/bin/jpeg*.dll" -Destination "$ReleaseInstallPrefix/bin" -Recurse
+}
+
+if ($BuildInstaller) {
+  Write-Host "Building package with CPack" -ForegroundColor Green
+  $proc = Start-Process -NoNewWindow -PassThru -FilePath $CMAKE_EXE -ArgumentList "--build . --target package"
+  $handle = $proc.Handle
+  $proc.WaitForExit()
+  $exitCode = $proc.ExitCode
+  if (-Not ($exitCode -eq 0)) {
+    MyThrow("Packaging failed! Exited with error code $exitCode.")
+  }
 }
 
 Pop-Location
