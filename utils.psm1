@@ -78,7 +78,7 @@ function getLatestVisualStudioWithDesktopWorkloadPath([bool]$required = $true) {
       $installationPath = $instance.InstallationPath -replace "\\$" # Remove potential trailing backslash
     }
     if (!$installationPath) {
-      Write-Host "Warning: no full Visual Studio setup has been found, extending search to include also partial installations" -ForegroundColor Yellow
+      #Write-Host "Warning: no full Visual Studio setup has been found, extending search to include also partial installations" -ForegroundColor Yellow
       $output = & $vswhereExe -products * -latest -format xml
       [xml]$asXml = $output
       foreach ($instance in $asXml.instances.instance) {
@@ -86,7 +86,7 @@ function getLatestVisualStudioWithDesktopWorkloadPath([bool]$required = $true) {
       }
     }
     if (!$installationPath) {
-      Write-Host "Warning: no full Visual Studio setup has been found, extending search to include also pre-release installations" -ForegroundColor Yellow
+      #Write-Host "Warning: no full Visual Studio setup has been found, extending search to include also pre-release installations" -ForegroundColor Yellow
       $output = & $vswhereExe -prerelease -products * -latest -format xml
       [xml]$asXml = $output
       foreach ($instance in $asXml.instances.instance) {
@@ -125,7 +125,7 @@ function getLatestVisualStudioWithDesktopWorkloadVersion([bool]$required = $true
       $installationVersion = $instance.InstallationVersion
     }
     if (!$installationVersion) {
-      Write-Host "Warning: no full Visual Studio setup has been found, extending search to include also partial installations" -ForegroundColor Yellow
+      #Write-Host "Warning: no full Visual Studio setup has been found, extending search to include also partial installations" -ForegroundColor Yellow
       $output = & $vswhereExe -products * -latest -format xml
       [xml]$asXml = $output
       foreach ($instance in $asXml.instances.instance) {
@@ -133,7 +133,7 @@ function getLatestVisualStudioWithDesktopWorkloadVersion([bool]$required = $true
       }
     }
     if (!$installationVersion) {
-      Write-Host "Warning: no full Visual Studio setup has been found, extending search to include also pre-release installations" -ForegroundColor Yellow
+      #Write-Host "Warning: no full Visual Studio setup has been found, extending search to include also pre-release installations" -ForegroundColor Yellow
       $output = & $vswhereExe -prerelease -products * -latest -format xml
       [xml]$asXml = $output
       foreach ($instance in $asXml.instances.instance) {

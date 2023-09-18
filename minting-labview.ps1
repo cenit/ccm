@@ -7,13 +7,16 @@
         minting-labview
         Created By: Stefano Sinigardi
         Created Date: August 9, 2022
-        Last Modified Date: August 2, 2023
+        Last Modified Date: August 31, 2023
 
 .DESCRIPTION
 Manage unattended LabVIEW install/uninstall procedures for different specified LabVIEW versions (IDE or RunTime)
 
 .PARAMETER DisableInteractive
 Disable script interactivity (useful for CI runs)
+
+.PARAMETER DisableSourceOnlyVIs
+Disable the automatic activation of option for creating source-only VIs (which is very important when source-controlling VIs - so disable at your own risk!)
 
 .PARAMETER UninstallAll
 Uninstall all NI software from computer. Requires NI Package Manager installed (not present for very old installation); in case NI Package Manager is missing, the script will ask to be relaunched to install it (.\minting-labview -DisableInteractive -LabVIEWVersion NIPKG); afterwards you can re-run it again to uninstall all NI software
@@ -77,7 +80,7 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$minting_labview_version = "4.1.1"
+$minting_labview_version = "4.2.0"
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
 
@@ -1372,6 +1375,37 @@ $VI_Server_Enabled
 
   Write-Host "Firewall rule installed" -ForegroundColor Green
   Write-Host "If running on an Azure VM, remember to open the ports also on Azure Portal for the VM!" -ForegroundColor Yellow
+}
+
+if (-Not $DisableSourceOnlyVIs) {
+  if ($64bitVersion) {
+    $ProgramFilesPath = "Program Files"
+  }
+  else {
+    $ProgramFilesPath = "Program Files (x86)"
+  }
+  $source_only_VIs = "sourceOnlyDefaultForNewVIs=True"
+  $LabVIEW_INI_Path = "C:/$ProgramFilesPath/National Instruments/LabVIEW $BaseVersion/LabVIEW.ini"
+  if (Test-Path $LabVIEW_INI_Path) {
+    if (Select-String -Path $LabVIEW_INI_Path -Pattern $source_only_VIs -SimpleMatch) {
+      Write-Host "LabVIEW.ini (${LabVIEW_INI_Path}) already contained instructions to have source-only VIs" -ForegroundColor Green
+    }
+    else {
+      Write-Host "LabVIEW.ini (${LabVIEW_INI_Path}) does not contain instructions to have  source-only VIs; adding $source_only_VIs to the file for you" -ForegroundColor Yellow
+      Add-Content ${LabVIEW_INI_Path} "`n$source_only_VIs"
+      Write-Host 'Done' -ForegroundColor Green
+    }
+  }
+  else {
+    $LabVIEW_INI_Content = @"
+[LabVIEW]
+IsFirstLaunch=False
+ShowWelcomeOnLaunch=False
+$source_only_VIs
+"@
+    Out-File -FilePath $LabVIEW_INI_Path -InputObject $LabVIEW_INI_Content -Encoding UTF8
+    Write-Host "LabVIEW.ini (${LabVIEW_INI_Path}) didn't exist. Creating a minimal file for you" -ForegroundColor Yellow
+  }
 }
 
 if ($UninstallAll) {

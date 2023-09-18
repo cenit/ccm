@@ -6,7 +6,7 @@
         build
         Created By: Stefano Sinigardi
         Created Date: February 18, 2019
-        Last Modified Date: August 31, 2023
+        Last Modified Date: September 15, 2023
 
 .DESCRIPTION
 Build tool using CMake, trying to properly setup the environment around compiler
@@ -193,10 +193,24 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$build_ps1_version = "3.5.0"
+$build_ps1_version = "3.6.0"
 $script_name = $MyInvocation.MyCommand.Name
+$utils_psm1_avail = $false
 
-Import-Module -Name $PSScriptRoot/utils.psm1 -Force
+if (Test-Path $PSScriptRoot/utils.psm1) {
+  Import-Module -Name $PSScriptRoot/utils.psm1 -Force
+  $utils_psm1_avail = $true
+}
+else {
+  utils_psm1_version = "unavail"
+  IsWindowsPowerShell = $false
+  IsInGitSubmodule = $false
+}
+
+if (-Not $utils_psm1_avail) {
+  $DoNotSetupVS = $true
+  $ForceCMakeFromVS = $false
+}
 
 $ErrorActionPreference = "SilentlyContinue"
 Stop-Transcript | out-null
@@ -216,6 +230,9 @@ $ReleaseBuildSetup = " -DCMAKE_INSTALL_PREFIX=$ReleaseInstallPrefix -DCMAKE_BUIL
 Start-Transcript -Path $BuildLogPath
 
 Write-Host "Build script version ${build_ps1_version}, utils module version ${utils_psm1_version}"
+if (-Not $utils_psm1_avail) {
+  Write-Host "utils.psm1 is not available, so VS integration is forcefully disabled" -ForegroundColor Yellow
+}
 Write-Host "Working directory: $PSCustomScriptRoot, log file: $BuildLogPath, $script_name is in submodule: $IsInGitSubmodule"
 
 if ((-Not $global:DisableInteractive) -and (-Not $UseVCPKG)) {
