@@ -6,7 +6,7 @@
         build
         Created By: Stefano Sinigardi
         Created Date: February 18, 2019
-        Last Modified Date: September 15, 2023
+        Last Modified Date: September 25, 2023
 
 .DESCRIPTION
 Build tool using CMake, trying to properly setup the environment around compiler
@@ -193,7 +193,7 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$build_ps1_version = "3.6.0"
+$build_ps1_version = "3.6.1"
 $script_name = $MyInvocation.MyCommand.Name
 $utils_psm1_avail = $false
 
@@ -202,9 +202,9 @@ if (Test-Path $PSScriptRoot/utils.psm1) {
   $utils_psm1_avail = $true
 }
 else {
-  utils_psm1_version = "unavail"
-  IsWindowsPowerShell = $false
-  IsInGitSubmodule = $false
+  $utils_psm1_version = "unavail"
+  $IsWindowsPowerShell = $false
+  $IsInGitSubmodule = $false
 }
 
 if (-Not $utils_psm1_avail) {
@@ -224,9 +224,12 @@ else {
 $BuildLogPath = "$PSCustomScriptRoot/build.log"
 $ReleaseInstallPrefix = "$PSCustomScriptRoot"
 $DebugInstallPrefix = "$PSCustomScriptRoot/debug"
-$DebugBuildSetup = " -DCMAKE_INSTALL_PREFIX=$DebugInstallPrefix -DCMAKE_BUILD_TYPE=Debug"
-$ReleaseBuildSetup = " -DCMAKE_INSTALL_PREFIX=$ReleaseInstallPrefix -DCMAKE_BUILD_TYPE=Release"
-
+$DebugBuildSetup = " -DCMAKE_BUILD_TYPE=Debug "
+$ReleaseBuildSetup = " -DCMAKE_BUILD_TYPE=Release "
+if (-Not $BuildInstaller) {
+  $DebugBuildSetup = $DebugBuildSetup + " -DCMAKE_INSTALL_PREFIX=$DebugInstallPrefix "
+  $ReleaseBuildSetup = $ReleaseBuildSetup + " -DCMAKE_INSTALL_PREFIX=$ReleaseInstallPrefix "
+}
 Start-Transcript -Path $BuildLogPath
 
 Write-Host "Build script version ${build_ps1_version}, utils module version ${utils_psm1_version}"
@@ -684,7 +687,11 @@ if ($UseVCPKG -And -Not $ForceLocalVCPKG) {
 }
 if (($null -eq $vcpkg_path) -and $UseVCPKG) {
   if (-Not (Test-Path "$PWD/vcpkg${VCPKGSuffix}")) {
-    $proc = Start-Process -NoNewWindow -PassThru -FilePath $GIT_EXE -ArgumentList "clone https://github.com/microsoft/vcpkg vcpkg${VCPKGSuffix}"
+    $shallow_copy = ""
+    if(($ForceOpenCVVersion -eq 0) -and ($ForceQTVersion -eq 0) {
+      $shallow_copy = " --depth 1 "
+    }
+    $proc = Start-Process -NoNewWindow -PassThru -FilePath $GIT_EXE -ArgumentList "clone $shallow_copy https://github.com/microsoft/vcpkg vcpkg${VCPKGSuffix}"
     $handle = $proc.Handle
     $proc.WaitForExit()
     $exitCode = $proc.ExitCode
@@ -785,29 +792,9 @@ if ($ForceVCPKGCacheRemoval -and (-Not $UseVCPKG)) {
   Write-Host "VCPKG is not enabled, so local vcpkg binary cache will not be deleted even if requested" -ForegroundColor Yellow
 }
 
-if ($UseVCPKG -and $ForceVCPKGCacheRemoval) {
-  if ($IsWindows -or $IsWindowsPowerShell) {
-    $vcpkgbinarycachepath = "$env:LOCALAPPDATA/vcpkg/archive"
-  }
-  elseif ($IsLinux) {
-    $vcpkgbinarycachepath = "$env:HOME/.cache/vcpkg/archive"
-  }
-  elseif ($IsMacOS) {
-    $vcpkgbinarycachepath = "$env:HOME/.cache/vcpkg/archive"
-  }
-  else {
-    MyThrow("Unknown OS, unsupported")
-  }
-  Write-Host "Removing local vcpkg binary cache from $vcpkgbinarycachepath" -ForegroundColor Yellow
-  Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $vcpkgbinarycachepath
-}
-
-if (-Not $DisableDLLcopy) {
-  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DX_VCPKG_APPLOCAL_DEPS_INSTALL=ON"
-}
-
-if ($EnableOPENMP) {
-  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_OPENMP=ON"
+if ($BuildInstaller) {
+  Write-Host "You requested to build an installer, so enabling this option if supported" -ForegroundColor Yellow
+  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_INSTALLER=ON"
 }
 
 if ($ForceOpenCVVersion -gt 0 -and -not $EnableOPENCV) {
@@ -836,6 +823,31 @@ if (($ForceOpenCVVersion -eq 4) -and $UseVCPKG) {
 
 if ($EnableOPENCV_CUDA) {
   $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_OPENCV_CUDA=ON"
+}
+
+if ($UseVCPKG -and $ForceVCPKGCacheRemoval) {
+  if ($IsWindows -or $IsWindowsPowerShell) {
+    $vcpkgbinarycachepath = "$env:LOCALAPPDATA/vcpkg/archive"
+  }
+  elseif ($IsLinux) {
+    $vcpkgbinarycachepath = "$env:HOME/.cache/vcpkg/archive"
+  }
+  elseif ($IsMacOS) {
+    $vcpkgbinarycachepath = "$env:HOME/.cache/vcpkg/archive"
+  }
+  else {
+    MyThrow("Unknown OS, unsupported")
+  }
+  Write-Host "Removing local vcpkg binary cache from $vcpkgbinarycachepath" -ForegroundColor Yellow
+  Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $vcpkgbinarycachepath
+}
+
+if (-Not $DisableDLLcopy) {
+  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DX_VCPKG_APPLOCAL_DEPS_INSTALL=ON"
+}
+
+if ($EnableOPENMP) {
+  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_OPENMP=ON"
 }
 
 if ($EnableVTK) {
@@ -870,13 +882,16 @@ if ($BuildDocumentation) {
   $AdditionalBuildSetup = $AdditionalBuildSetup + " -DBUILD_DOCUMENTATION=ON "
 }
 
-if ($ForceVCPKGBuildtreesPath -ne "") {
-  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DVCPKG_INSTALL_OPTIONS=`"--x-buildtrees-root=$ForceVCPKGBuildtreesPath`" "
-  New-Item -Path $ForceVCPKGBuildtreesPath -ItemType directory -Force | Out-Null
-  $vcpkgbuildtreespath = "$ForceVCPKGBuildtreesPath"
-}
-else {
-  $vcpkgbuildtreespath = "$vcpkg_path/buildtrees"
+if($UseVCPKG) {
+  if ($ForceVCPKGBuildtreesPath -ne "") {
+    $AdditionalBuildSetup = $AdditionalBuildSetup + " -DVCPKG_INSTALL_OPTIONS=--clean-buildtrees-after-build;--x-buildtrees-root=`"$ForceVCPKGBuildtreesPath`""
+    New-Item -Path $ForceVCPKGBuildtreesPath -ItemType directory -Force | Out-Null
+    $vcpkgbuildtreespath = "$ForceVCPKGBuildtreesPath"
+  }
+  else {
+    $AdditionalBuildSetup = $AdditionalBuildSetup + " -DVCPKG_INSTALL_OPTIONS=--clean-buildtrees-after-build"
+    $vcpkgbuildtreespath = "$vcpkg_path/buildtrees"
+  }
 }
 
 if ($BuildDebug) {
@@ -913,7 +928,6 @@ if ($BuildDebug) {
   }
 }
 $release_build_folder = "$PSCustomScriptRoot/build_release"
-
 if (-Not $DoNotDeleteBuildFolder) {
   Write-Host "Removing folder $release_build_folder" -ForegroundColor Yellow
   Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $release_build_folder
@@ -932,7 +946,12 @@ if (-Not ($exitCode -eq 0)) {
   MyThrow("Config failed! Exited with error code $exitCode.")
 }
 Write-Host "Building release CMake project" -ForegroundColor Green
-$proc = Start-Process -NoNewWindow -PassThru -FilePath $CMAKE_EXE -ArgumentList "--build . ${releaseConfig} --parallel ${NumberOfBuildWorkers} --target install"
+if ($BuildInstaller) {
+  $proc = Start-Process -NoNewWindow -PassThru -FilePath $CMAKE_EXE -ArgumentList "--build . ${releaseConfig} --parallel ${NumberOfBuildWorkers}"
+}
+else {
+  $proc = Start-Process -NoNewWindow -PassThru -FilePath $CMAKE_EXE -ArgumentList "--build . ${releaseConfig} --parallel ${NumberOfBuildWorkers} --target install"
+}
 $handle = $proc.Handle
 $proc.WaitForExit()
 $exitCode = $proc.ExitCode
@@ -961,7 +980,6 @@ if ($BuildInstaller) {
 }
 
 Pop-Location
-
 Write-Host "Build complete!" -ForegroundColor Green
 
 if ($ForceVCPKGBuildtreesRemoval -and (-Not $UseVCPKG)) {
