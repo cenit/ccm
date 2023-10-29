@@ -80,7 +80,7 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$minting_labview_version = "4.2.0"
+$minting_labview_version = "4.2.2"
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
 
@@ -132,11 +132,11 @@ if (($LabVIEWVersion -eq "NIPKG") -or $UninstallAll) {
   $OpenPortsOnFirewall = $false
   $installers = @(
     [LabVIEWInstaller]@{
-      FileName            = "NIPackageManager23.5.0.exe";
+      FileName            = "NIPackageManager23.8.0.exe";
       Legacy              = $false;
       Requires7Zip        = $false;
       AvailableOnInternet = $true;
-      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-package-manager/installers/NIPackageManager23.5.0.exe"
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-package-manager/installers/NIPackageManager23.8.0.exe"
     }
   )
 }
@@ -1145,18 +1145,18 @@ elseif ($LabVIEWVersion -eq "2022Q3-64-IDE") {
       DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-c/ni-compactrio-device-drivers/22.5/offline/ni-compactrio-device-drivers_22.5.0.49214-0+f62_offline.iso"
     }
     [LabVIEWInstaller]@{
-      FileName            = "ni-vivado-2021.1-cg_22.3.0_offline.iso";
-      Legacy              = $false;
-      Requires7Zip        = $false;
-      AvailableOnInternet = $true;
-      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-v/ni-vivado-2021.1-cg/22.3/offline/ni-vivado-2021.1-cg_22.3.0_offline.iso"
-    }
-    [LabVIEWInstaller]@{
       FileName            = "ni-usrp_22.8.0_offline.iso";
       Legacy              = $false;
       Requires7Zip        = $false;
       AvailableOnInternet = $true;
       DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-u/ni-usrp/22.8/offline/ni-usrp_22.8.0_offline.iso"
+    }
+    [LabVIEWInstaller]@{
+      FileName            = "ni-vivado-2021.1-cg_22.3.0_offline.iso";
+      Legacy              = $false;
+      Requires7Zip        = $false;
+      AvailableOnInternet = $true;
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-v/ni-vivado-2021.1-cg/22.3/offline/ni-vivado-2021.1-cg_22.3.0_offline.iso"
     }
   )
 }
@@ -1185,6 +1185,55 @@ elseif ($LabVIEWVersion -eq "2022Q3-64-RUNTIME") {
       Requires7Zip        = $false;
       AvailableOnInternet = $true;
       DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-u/ni-usrp/22.8/offline/ni-usrp_22.8.0_offline.iso"
+    }
+  )
+}
+elseif ($LabVIEWVersion -eq "2023Q1-64-IDE") {
+  $BaseVersion = 2023
+  $64bitVersion = $true
+  $OpenPortsOnFirewall = $true
+  $installers = @(
+    [LabVIEWInstaller]@{
+      FileName            = "ni-embedded-control-and-monitoring-suite_23.0.0.49266-0+f114_offline.iso";
+      Legacy              = $false;
+      Requires7Zip        = $false;
+      AvailableOnInternet = $true;
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-e/ni-embedded-control-and-monitoring-suite/23.0/offline/ni-embedded-control-and-monitoring-suite_23.0.0.49266-0+f114_offline.iso"
+    }
+    [LabVIEWInstaller]@{
+      FileName            = "ni-usrp_23.5.0_offline.iso";
+      Legacy              = $false;
+      Requires7Zip        = $false;
+      AvailableOnInternet = $true;
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-u/ni-usrp/23.5/offline/ni-usrp_23.5.0_offline.iso"
+    }
+  )
+}
+elseif ($LabVIEWVersion -eq "2023Q1-64-RUNTIME") {
+  $BaseVersion = 2022
+  $64bitVersion = $true
+  $OpenPortsOnFirewall = $false
+  $installers = @(
+    [LabVIEWInstaller]@{
+      FileName            = "ni-labview-2023-runtime-engine_23.1.0_offline.iso";
+      Legacy              = $false;
+      Requires7Zip        = $false;
+      AvailableOnInternet = $true;
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-l/ni-labview-2023-runtime-engine/23.1/offline/ni-labview-2023-runtime-engine_23.1.0_offline.iso"
+    }
+    [LabVIEWInstaller]@{
+      FileName            = "ni-compactrio-device-drivers_23.0.0.49365-0+f213_offline.iso";
+      Legacy              = $false;
+      Requires7Zip        = $false;
+      AvailableOnInternet = $true;
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-c/ni-compactrio-device-drivers/23.0/offline/ni-compactrio-device-drivers_23.0.0.49365-0+f213_offline.iso"
+    }
+    [LabVIEWInstaller]@{
+      FileName            = "ni-usrp_23.5.0_offline.iso";
+      Legacy              = $false;
+      Requires7Zip        = $false;
+      AvailableOnInternet = $true;
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-u/ni-usrp/23.5/offline/ni-usrp_23.5.0_offline.iso"
     }
   )
 }
