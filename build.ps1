@@ -6,7 +6,7 @@
         build
         Created By: Stefano Sinigardi
         Created Date: February 18, 2019
-        Last Modified Date: September 25, 2023
+        Last Modified Date: April 29, 2024
 
 .DESCRIPTION
 Build tool using CMake, trying to properly setup the environment around compiler
@@ -193,7 +193,7 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$build_ps1_version = "3.6.1"
+$build_ps1_version = "4.0.0"
 $script_name = $MyInvocation.MyCommand.Name
 $utils_psm1_avail = $false
 
@@ -287,6 +287,31 @@ if (($IsLinux -or $IsMacOS) -and ($ForceGCCVersion -gt 0)) {
   $env:CXX = "g++-$ForceGCCVersion"
 }
 
+$osArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+switch ($osArchitecture) {
+  "X86" {
+    $vcpkgArchitecture = "x86"
+    $vsArchitecture = "Win32"
+  }
+  "X64" {
+    $vcpkgArchitecture = "x64"
+    $vsArchitecture = "x64"
+  }
+  "Arm" {
+    $vcpkgArchitecture = "arm"
+    $vsArchitecture = "arm"
+  }
+  "Arm64" {
+    $vcpkgArchitecture = "arm64"
+    $vsArchitecture = "arm64"
+  }
+  default {
+    $vcpkgArchitecture = "x64"
+    $vsArchitecture = "x64"
+    Write-Output "Unknown architecture. Trying x64"
+  }
+}
+
 $vcpkg_triplet_set_by_this_script = $false
 $vcpkg_host_triplet_set_by_this_script = $false
 
@@ -300,48 +325,48 @@ if (($IsWindows -or $IsWindowsPowerShell) -and (-Not $env:VCPKG_DEFAULT_TRIPLET)
       $DoNotUseNinja = $true
       Write-Host "Warning: when building for 32bit windows target, only msbuild can be used and ninja will be disabled. Doing that for you!" -ForegroundColor Yellow
     }
-    $env:VCPKG_DEFAULT_TRIPLET = "x86-windows"
+    $env:VCPKG_DEFAULT_TRIPLET = "${vcpkgArchitecture}-windows"
     $vcpkg_triplet_set_by_this_script = $true
   }
   else {
     if($BuildDebug) {
-      $env:VCPKG_DEFAULT_TRIPLET = "x64-windows"
+      $env:VCPKG_DEFAULT_TRIPLET = "${vcpkgArchitecture}-windows"
       $vcpkg_triplet_set_by_this_script = $true
     }
     else {
-      $env:VCPKG_DEFAULT_TRIPLET = "x64-windows-release"
+      $env:VCPKG_DEFAULT_TRIPLET = "${vcpkgArchitecture}-windows-release"
       $vcpkg_triplet_set_by_this_script = $true
     }
   }
 }
 if (($IsWindows -or $IsWindowsPowerShell) -and (-Not $env:VCPKG_DEFAULT_HOST_TRIPLET)) {
   if ($BuildDebug) {
-    $env:VCPKG_DEFAULT_HOST_TRIPLET = "x64-windows"
+    $env:VCPKG_DEFAULT_HOST_TRIPLET = "${vcpkgArchitecture}-windows"
     $vcpkg_host_triplet_set_by_this_script = $true
   }
   else {
-    $env:VCPKG_DEFAULT_HOST_TRIPLET = "x64-windows-release"
+    $env:VCPKG_DEFAULT_HOST_TRIPLET = "${vcpkgArchitecture}-windows-release"
     $vcpkg_host_triplet_set_by_this_script = $true
   }
 }
 
 if ($IsMacOS -and (-Not $env:VCPKG_DEFAULT_TRIPLET)) {
   if ($BuildDebug) {
-    $env:VCPKG_DEFAULT_TRIPLET = "x64-osx"
+    $env:VCPKG_DEFAULT_TRIPLET = "${vcpkgArchitecture}-osx"
     $vcpkg_triplet_set_by_this_script = $true
   }
   else {
-    $env:VCPKG_DEFAULT_TRIPLET = "x64-osx-release"
+    $env:VCPKG_DEFAULT_TRIPLET = "${vcpkgArchitecture}-osx-release"
     $vcpkg_triplet_set_by_this_script = $true
   }
 }
 if ($IsMacOS -and (-Not $env:VCPKG_DEFAULT_HOST_TRIPLET)) {
   if ($BuildDebug) {
-    $env:VCPKG_DEFAULT_HOST_TRIPLET = "x64-osx"
+    $env:VCPKG_DEFAULT_HOST_TRIPLET = "${vcpkgArchitecture}-osx"
     $vcpkg_host_triplet_set_by_this_script = $true
   }
   else {
-    $env:VCPKG_DEFAULT_HOST_TRIPLET = "x64-osx-release"
+    $env:VCPKG_DEFAULT_HOST_TRIPLET = "${vcpkgArchitecture}-osx-release"
     $vcpkg_host_triplet_set_by_this_script = $true
   }
 }
@@ -349,22 +374,22 @@ if ($IsMacOS -and (-Not $env:VCPKG_DEFAULT_HOST_TRIPLET)) {
 if ($IsLinux -and (-Not $env:VCPKG_DEFAULT_TRIPLET)) {
   if ($true) {
     if ($BuildDebug) {
-      $env:VCPKG_DEFAULT_TRIPLET = "x64-linux"
+      $env:VCPKG_DEFAULT_TRIPLET = "${vcpkgArchitecture}-linux"
       $vcpkg_triplet_set_by_this_script = $true
     }
     else {
-      $env:VCPKG_DEFAULT_TRIPLET = "x64-linux-release"
+      $env:VCPKG_DEFAULT_TRIPLET = "${vcpkgArchitecture}-linux-release"
       $vcpkg_triplet_set_by_this_script = $true
     }
   }
 }
 if ($IsLinux -and (-Not $env:VCPKG_DEFAULT_HOST_TRIPLET)) {
   if ($BuildDebug) {
-    $env:VCPKG_DEFAULT_HOST_TRIPLET = "x64-linux"
+    $env:VCPKG_DEFAULT_HOST_TRIPLET = "${vcpkgArchitecture}-linux"
     $vcpkg_host_triplet_set_by_this_script = $true
   }
   else {
-    $env:VCPKG_DEFAULT_HOST_TRIPLET = "x64-linux-release"
+    $env:VCPKG_DEFAULT_HOST_TRIPLET = "${vcpkgArchitecture}-linux-release"
     $vcpkg_host_triplet_set_by_this_script = $true
   }
 }
@@ -578,11 +603,11 @@ if (-Not $DoNotUseNinja) {
 
 if (-Not $DoNotSetupVS) {
   $CL_EXE = Get-Command "cl" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
-  if ((-Not $CL_EXE) -or ($CL_EXE -match "HostX86\\x86") -or ($CL_EXE -match "HostX64\\x86")) {
+  if (-Not $CL_EXE) {
     $vsfound = getLatestVisualStudioWithDesktopWorkloadPath
     Write-Host "Found VS in ${vsfound}"
     Push-Location "${vsfound}/Common7/Tools"
-    cmd.exe /c "VsDevCmd.bat -arch=x64 & set" |
+    cmd.exe /c "VsDevCmd.bat -arch=${vsArchitecture} & set" |
     ForEach-Object {
       if ($_ -match "=") {
         $v = $_.split("="); Set-Item -force -path "ENV:\$($v[0])"  -value "$($v[1])"
@@ -598,26 +623,26 @@ if (-Not $DoNotSetupVS) {
     $debugConfig = " --config Debug "
     $releaseConfig = " --config Release "
     if ($Use32bitTriplet) {
-      $targetArchitecture = "`"Win32`""
+      $targetArchitecture = "`"${vsArchitecture}`""
     }
     else {
-      $targetArchitecture = "`"x64`""
+      $targetArchitecture = "`"${vsArchitecture}`""
     }
     if ($tokens[0] -eq "14") {
       $generator = "Visual Studio 14 2015"
-      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A $targetArchitecture"
+      $AdditionalBuildSetup = $AdditionalBuildSetup + " -A $targetArchitecture"
     }
     elseif ($tokens[0] -eq "15") {
       $generator = "Visual Studio 15 2017"
-      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A $targetArchitecture"
+      $AdditionalBuildSetup = $AdditionalBuildSetup + " -A $targetArchitecture"
     }
     elseif ($tokens[0] -eq "16") {
       $generator = "Visual Studio 16 2019"
-      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A $targetArchitecture"
+      $AdditionalBuildSetup = $AdditionalBuildSetup + " -A $targetArchitecture"
     }
     elseif ($tokens[0] -eq "17") {
       $generator = "Visual Studio 17 2022"
-      $AdditionalBuildSetup = $AdditionalBuildSetup + " -T `"host=x64`" -A $targetArchitecture"
+      $AdditionalBuildSetup = $AdditionalBuildSetup + " -A $targetArchitecture"
     }
     else {
       MyThrow("Unknown Visual Studio version, unsupported configuration")
