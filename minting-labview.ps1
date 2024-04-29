@@ -7,7 +7,7 @@
         minting-labview
         Created By: Stefano Sinigardi
         Created Date: August 9, 2022
-        Last Modified Date: August 31, 2023
+        Last Modified Date: April 17, 2024
 
 .DESCRIPTION
 Manage unattended LabVIEW install/uninstall procedures for different specified LabVIEW versions (IDE or RunTime)
@@ -17,6 +17,9 @@ Disable script interactivity (useful for CI runs)
 
 .PARAMETER DisableSourceOnlyVIs
 Disable the automatic activation of option for creating source-only VIs (which is very important when source-controlling VIs - so disable at your own risk!)
+
+.PARAMETER DryRun
+Do not really run installer executables or execute commands on the target pc
 
 .PARAMETER UninstallAll
 Uninstall all NI software from computer. Requires NI Package Manager installed (not present for very old installation); in case NI Package Manager is missing, the script will ask to be relaunched to install it (.\minting-labview -DisableInteractive -LabVIEWVersion NIPKG); afterwards you can re-run it again to uninstall all NI software
@@ -40,6 +43,9 @@ NIPKG
 2022Q3-32-RUNTIME
 2022Q3-64-IDE
 2022Q3-64-RUNTIME
+2023Q1-64-IDE
+2023Q1-64-RUNTIME
+2024Q1-64-IDE
 
 .EXAMPLE
 .\minting-labview -DisableInteractive -LabVIEWVersion 2021SP1-64-IDE -InstallerBasePath G:\labview\2021SP1
@@ -80,30 +86,55 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$minting_labview_version = "4.2.2"
+$minting_labview_version = "4.4.2"
+$script_name = $MyInvocation.MyCommand.Name
+$utils_psm1_avail = $false
 
-Import-Module -Name $PSScriptRoot/utils.psm1 -Force
+if (Test-Path $PSScriptRoot/utils.psm1) {
+  Import-Module -Name $PSScriptRoot/utils.psm1 -Force
+  $utils_psm1_avail = $true
+}
+elseif (Test-Path $PSScriptRoot/cmake/utils.psm1) {
+  Import-Module -Name $PSScriptRoot/cmake/utils.psm1 -Force
+  $utils_psm1_avail = $true
+  $IsInGitSubmodule = $false
+}
+elseif (Test-Path $PSScriptRoot/ci/utils.psm1) {
+  Import-Module -Name $PSScriptRoot/ci/utils.psm1 -Force
+  $utils_psm1_avail = $true
+  $IsInGitSubmodule = $false
+}
+elseif (Test-Path $PSScriptRoot/ccm/utils.psm1) {
+  Import-Module -Name $PSScriptRoot/ccm/utils.psm1 -Force
+  $utils_psm1_avail = $true
+  $IsInGitSubmodule = $false
+}
+else {
+  $utils_psm1_version = "unavail"
+  $IsWindowsPowerShell = $false
+  $IsInGitSubmodule = $false
+}
 
 $ErrorActionPreference = "SilentlyContinue"
 Stop-Transcript | out-null
 $ErrorActionPreference = "Continue"
-$LogPath = switch ( $IsInGitSubmodule ) {
-  $true { "$PSScriptRoot/../minting-labview.log" }
-  $false { "$PSScriptRoot/minting-labview.log" }
+if($IsInGitSubmodule) {
+  $PSCustomScriptRoot = Split-Path $PSScriptRoot -Parent
 }
+else {
+  $PSCustomScriptRoot = $PSScriptRoot
+}
+$LogPath = "$PSCustomScriptRoot/minting-labview.log"
 Start-Transcript -Path $LogPath
 
 Write-Host "Minting script version ${minting_labview_version}, utils module version ${utils_psm1_version}"
+if (-Not $utils_psm1_avail) {
+  Write-Host "utils.psm1 is not available" -ForegroundColor Yellow
+}
+Write-Host "Working directory: $PSCustomScriptRoot, log file: $LogPath, $script_name is in submodule: $IsInGitSubmodule"
 
 Write-Host -NoNewLine "PowerShell version:"
 $PSVersionTable.PSVersion
-
-if ($IsInGitSubmodule) {
-  Write-Host "Running scripts from a Git Submodule"
-}
-else {
-  Write-Host "Outside of a git submodule"
-}
 
 if ($IsWindowsPowerShell) {
   Write-Host "Running on Windows Powershell, please consider update and running on newer Powershell versions"
@@ -127,16 +158,16 @@ class LabVIEWInstaller {
 }
 
 if (($LabVIEWVersion -eq "NIPKG") -or $UninstallAll) {
-  $BaseVersion = 2023
+  $BaseVersion = 2024
   $64bitVersion = $true
   $OpenPortsOnFirewall = $false
   $installers = @(
     [LabVIEWInstaller]@{
-      FileName            = "NIPackageManager23.8.0.exe";
+      FileName            = "NIPackageManager24.3.0.exe";
       Legacy              = $false;
       Requires7Zip        = $false;
       AvailableOnInternet = $true;
-      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-package-manager/installers/NIPackageManager23.8.0.exe"
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-package-manager/installers/NIPackageManager24.3.0.exe"
     }
   )
 }
@@ -1210,7 +1241,7 @@ elseif ($LabVIEWVersion -eq "2023Q1-64-IDE") {
   )
 }
 elseif ($LabVIEWVersion -eq "2023Q1-64-RUNTIME") {
-  $BaseVersion = 2022
+  $BaseVersion = 2023
   $64bitVersion = $true
   $OpenPortsOnFirewall = $false
   $installers = @(
@@ -1222,11 +1253,46 @@ elseif ($LabVIEWVersion -eq "2023Q1-64-RUNTIME") {
       DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-l/ni-labview-2023-runtime-engine/23.1/offline/ni-labview-2023-runtime-engine_23.1.0_offline.iso"
     }
     [LabVIEWInstaller]@{
-      FileName            = "ni-compactrio-device-drivers_23.0.0.49365-0+f213_offline.iso";
+      FileName            = "ni-usrp_23.5.0_offline.iso";
       Legacy              = $false;
       Requires7Zip        = $false;
       AvailableOnInternet = $true;
-      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-c/ni-compactrio-device-drivers/23.0/offline/ni-compactrio-device-drivers_23.0.0.49365-0+f213_offline.iso"
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-u/ni-usrp/23.5/offline/ni-usrp_23.5.0_offline.iso"
+    }
+  )
+}
+elseif ($LabVIEWVersion -eq "2024Q1-64-IDE") {
+  $BaseVersion = 2024
+  $64bitVersion = $true
+  $OpenPortsOnFirewall = $true
+  $installers = @(
+    [LabVIEWInstaller]@{
+      FileName            = "ni-embedded-control-and-monitoring-suite_24.0.0.49237-0+f85_offline.iso";
+      Legacy              = $false;
+      Requires7Zip        = $false;
+      AvailableOnInternet = $true;
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-e/ni-embedded-control-and-monitoring-suite/24.0/offline/ni-embedded-control-and-monitoring-suite_24.0.0.49237-0+f85_offline.iso"
+    }
+    [LabVIEWInstaller]@{
+      FileName            = "ni-labview-2024-rt-module_24.1.0_offline.iso";
+      Legacy              = $false;
+      Requires7Zip        = $false;
+      AvailableOnInternet = $true;
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-l/ni-labview-2024-rt-module/24.1/offline/ni-labview-2024-rt-module_24.1.0_offline.iso"
+    }
+    [LabVIEWInstaller]@{
+      FileName            = "ni-labview-2024-fpga-module_24.1.1_offline.iso";
+      Legacy              = $false;
+      Requires7Zip        = $false;
+      AvailableOnInternet = $true;
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-l/ni-labview-2024-fpga-module/24.1/offline/ni-labview-2024-fpga-module_24.1.1_offline.iso"
+    }
+    [LabVIEWInstaller]@{
+      FileName            = "ni-compactrio-device-drivers_24.3.0.49257-0+f105_offline.iso";
+      Legacy              = $false;
+      Requires7Zip        = $false;
+      AvailableOnInternet = $true;
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-c/ni-compactrio-device-drivers/24.3/offline/ni-compactrio-device-drivers_24.3.0.49257-0+f105_offline.iso"
     }
     [LabVIEWInstaller]@{
       FileName            = "ni-usrp_23.5.0_offline.iso";
@@ -1234,6 +1300,13 @@ elseif ($LabVIEWVersion -eq "2023Q1-64-RUNTIME") {
       Requires7Zip        = $false;
       AvailableOnInternet = $true;
       DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-u/ni-usrp/23.5/offline/ni-usrp_23.5.0_offline.iso"
+    }
+    [LabVIEWInstaller]@{
+      FileName            = "ni-vivado-2021.1-cg_24.1.0_offline.iso";
+      Legacy              = $false;
+      Requires7Zip        = $false;
+      AvailableOnInternet = $true;
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-v/ni-vivado-2021.1-cg/24.1/offline/ni-vivado-2021.1-cg_24.1.0_offline.iso"
     }
   )
 }
@@ -1250,10 +1323,33 @@ foreach ($installer in $installers) {
       Write-Host "Creating folder $InstallerBasePath"
       New-Item -Path $InstallerBasePath -ItemType directory -Force | Out-Null
     }
-    $aria2 = DownloadAria2
+
+    $ARIA2_EXE = Get-Command "aria2c" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
+    if (-Not $ARIA2_EXE) {
+
+      if ($IsWindows -or $IsWindowsPowerShell) {
+        $basename = "aria2-1.37.0-win-32bit-build1"
+      }
+      elseif ($IsLinux) {
+        $basename = "aria2-1.36.0-linux-gnu-64bit-build1"
+      }
+      elseif ($IsMacOS) {
+        $basename = "aria2-1.35.0/bin"
+      }
+      $ARIA2_EXE = Get-Command "$basename/aria2c" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
+      if (-Not $ARIA2_EXE) {
+        Start-Sleep -Seconds 10
+        $ARIA2_EXE = DownloadAria2
+        if (-Not $ARIA2_EXE) {
+          MyThrow("Unable to find Aria2 and to download a portable version on the fly.")
+        }
+      }
+      Write-Host "Using aria2 from ${ARIA2_EXE}"
+    }
+
     $downloadArgs = " -x 2 --file-allocation=none $($installer.DownloadLink) -d $($InstallerBasePath) -o $($installer.FileName) "
     Write-Host "Downloading $InstallerBasePath/$($installer.FileName)"
-    $proc = Start-Process -NoNewWindow -PassThru -FilePath $aria2 -ArgumentList $downloadArgs
+    $proc = Start-Process -NoNewWindow -PassThru -FilePath $ARIA2_EXE -ArgumentList $downloadArgs
     $handle = $proc.Handle
     $proc.WaitForExit()
     $exitCode = $proc.ExitCode
@@ -1381,7 +1477,7 @@ foreach ($installer in $installers) {
   }
 }
 
-if ($OpenPortsOnFirewall) {
+if ($OpenPortsOnFirewall -and -Not $DryRun) {
   if ($64bitVersion) {
     $ProgramFilesPath = "Program Files"
   }
@@ -1426,7 +1522,7 @@ $VI_Server_Enabled
   Write-Host "If running on an Azure VM, remember to open the ports also on Azure Portal for the VM!" -ForegroundColor Yellow
 }
 
-if (-Not $DisableSourceOnlyVIs) {
+if (-Not $DisableSourceOnlyVIs -and -Not $DryRun) {
   if ($64bitVersion) {
     $ProgramFilesPath = "Program Files"
   }

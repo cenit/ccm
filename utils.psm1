@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 #>
 
-$utils_psm1_version = "0.3.0"
+$utils_psm1_version = "1.2.3"
 $IsWindowsPowerShell = switch ( $PSVersionTable.PSVersion.Major ) {
   5 { $true }
   4 { $true }
@@ -162,6 +162,24 @@ function getLatestVisualStudioWithDesktopWorkloadVersion([bool]$required = $true
   return $installationVersion
 }
 
+function setupVisualStudio([bool]$required = $true) {
+  $CL_EXE = Get-Command "cl" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
+  if ((-Not $CL_EXE) -or ($CL_EXE -match "HostX86\\x86") -or ($CL_EXE -match "HostX64\\x86")) {
+    $vsfound = getLatestVisualStudioWithDesktopWorkloadPath
+    Write-Host "Found VS in ${vsfound}"
+    Push-Location "${vsfound}/Common7/Tools"
+    cmd.exe /c "VsDevCmd.bat -arch=x64 & set" |
+    ForEach-Object {
+      if ($_ -match "=") {
+        $v = $_.split("="); Set-Item -force -path "ENV:\$($v[0])"  -value "$($v[1])"
+      }
+    }
+    Pop-Location
+    $env:PATH = "${vsfound}/VC/Tools/Llvm/x64/bin;$env:PATH"
+    Write-Host "Visual Studio Command Prompt variables set"
+  }
+}
+
 function DownloadNinja() {
   Write-Host "Downloading a portable version of Ninja" -ForegroundColor Yellow
   Remove-Item -Force -Recurse -ErrorAction SilentlyContinue ninja
@@ -187,12 +205,12 @@ function DownloadNinja() {
 function DownloadAria2() {
   Write-Host "Downloading a portable version of Aria2" -ForegroundColor Yellow
   if ($IsWindows -or $IsWindowsPowerShell) {
-    $basename = "aria2-1.35.0-win-32bit-build1"
+    $basename = "aria2-1.37.0-win-32bit-build1"
     $zipName = "${basename}.zip"
     $outFolder = "$basename/$basename"
     Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $outFolder
     Remove-Item -Force -ErrorAction SilentlyContinue $zipName
-    $url = "https://github.com/aria2/aria2/releases/download/release-1.35.0/$zipName"
+    $url = "https://github.com/aria2/aria2/releases/download/release-1.37.0/$zipName"
     Invoke-RestMethod -Uri $url -Method Get -ContentType application/zip -OutFile $zipName
     Expand-Archive -Path $zipName
   }
@@ -221,6 +239,29 @@ function DownloadAria2() {
   }
   Remove-Item -Force -ErrorAction SilentlyContinue $zipName
   return "./$outFolder/aria2c${ExecutableSuffix}"
+}
+
+function DownloadLicencpp() {
+  $licencpp_version = "0.2.1"
+  Write-Host "Downloading a portable version of licencpp v${licencpp_version}" -ForegroundColor Yellow
+  if ($IsWindows -or $IsWindowsPowerShell) {
+    $basename = "licencpp-Windows"
+  }
+  elseif ($IsLinux) {
+    $basename = "licencpp-Linux"
+  }
+  else {
+    MyThrow("Unknown OS, unsupported")
+  }
+  $zipName = "${basename}.zip"
+  $outFolder = "${basename}"
+  Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $outFolder
+  Remove-Item -Force -ErrorAction SilentlyContinue $zipName
+  $url = "https://github.com/cenit/licencpp/releases/download/v${licencpp_version}/$zipName"
+  Invoke-RestMethod -Uri $url -Method Get -ContentType application/zip -OutFile $zipName
+  Expand-Archive -Path $zipName
+  Remove-Item -Force -ErrorAction SilentlyContinue $zipName
+  return "./$outFolder/licencpp${ExecutableSuffix}"
 }
 
 function Download7Zip() {
@@ -331,6 +372,53 @@ Function CopyTexFile ($MyFile) {
   }
 }
 
+Function dos2unix {
+  Param (
+    [Parameter(mandatory = $true)]
+    [string[]]$path
+  )
+
+  Get-ChildItem -File -Recurse -Path $path |
+  ForEach-Object {
+    Write-Host "Converting $_"
+    $x = get-content -raw -path $_.fullname; $x -replace "`r`n", "`n" | Set-Content -NoNewline -Force -path $_.fullname
+  }
+}
+
+Function unix2dos {
+  Param (
+    [Parameter(mandatory = $true)]
+    [string[]]$path
+  )
+
+  Get-ChildItem -File -Recurse -Path $path |
+  ForEach-Object {
+    $x = get-content -raw -path $_.fullname
+    $SearchStr = [regex]::Escape("`r`n")
+    $SEL = Select-String -InputObject $x -Pattern $SearchStr
+    if ($null -ne $SEL) {
+      Write-Host "Converting $_"
+      # do nothing: avoid creating files containing `r`r`n when using unix2dos twice on the same file
+    }
+    else {
+      Write-Host "Converting $_"
+      $x -replace "`n", "`r`n" | Set-Content -NoNewline -Force -path $_.fullname
+    }
+  }
+}
+
+Function UpdateRepo {
+  if ($GIT_EXE) {
+    Get-ChildItem -Directory |
+      ForEach-Object {
+      Set-Location $_.Name
+      git pull
+      git submodule update --recursive
+      Set-Location ..
+    }
+  }
+}
+
 Export-ModuleMember -Variable utils_psm1_version
 Export-ModuleMember -Variable IsWindowsPowerShell
 Export-ModuleMember -Variable IsInGitSubmodule
@@ -339,8 +427,13 @@ Export-ModuleMember -Variable 64bitOS
 Export-ModuleMember -Function getProgramFiles32bit
 Export-ModuleMember -Function getLatestVisualStudioWithDesktopWorkloadPath
 Export-ModuleMember -Function getLatestVisualStudioWithDesktopWorkloadVersion
+Export-ModuleMember -Function setupVisualStudio
 Export-ModuleMember -Function DownloadNinja
 Export-ModuleMember -Function DownloadAria2
 Export-ModuleMember -Function Download7Zip
+Export-ModuleMember -Function DownloadLicencpp
 Export-ModuleMember -Function MyThrow
 Export-ModuleMember -Function CopyTexFile
+Export-ModuleMember -Function dos2unix
+Export-ModuleMember -Function unix2dos
+Export-ModuleMember -Function UpdateRepo

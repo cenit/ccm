@@ -98,6 +98,12 @@ Force using a different buildtrees dir for vcpkg
 .PARAMETER ForceVCPKGPackagesRemoval
 Force clean up of vcpkg packages folder at the end of the script
 
+.PARAMETER CloneVCPKGShallow
+Clone vcpkg as shallow repository
+
+.PARAMETER ForceDisableVCPKGShallow
+Force vcpkg clone to NOT be a shallow one
+
 .PARAMETER ForceSetupVS
 Forces Visual Studio setup, also on systems on which it would not have been enabled automatically
 
@@ -181,6 +187,8 @@ param (
   [switch]$ForceVCPKGBuildtreesRemoval = $false,
   [string]$ForceVCPKGBuildtreesPath = "",
   [switch]$ForceVCPKGPackagesRemoval = $false,
+  [switch]$CloneVCPKGShallow = $false,
+  [switch]$ForceDisableVCPKGShallow = $false,
   [switch]$ForceSetupVS = $false,
   [switch]$ForceCMakeFromVS = $false,
   [switch]$ForceNinjaFromVS = $false,
@@ -193,13 +201,28 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$build_ps1_version = "4.0.0"
+$build_ps1_version = "4.0.1"
 $script_name = $MyInvocation.MyCommand.Name
 $utils_psm1_avail = $false
 
 if (Test-Path $PSScriptRoot/utils.psm1) {
   Import-Module -Name $PSScriptRoot/utils.psm1 -Force
   $utils_psm1_avail = $true
+}
+elseif (Test-Path $PSScriptRoot/cmake/utils.psm1) {
+  Import-Module -Name $PSScriptRoot/cmake/utils.psm1 -Force
+  $utils_psm1_avail = $true
+  $IsInGitSubmodule = $false
+}
+elseif (Test-Path $PSScriptRoot/ci/utils.psm1) {
+  Import-Module -Name $PSScriptRoot/ci/utils.psm1 -Force
+  $utils_psm1_avail = $true
+  $IsInGitSubmodule = $false
+}
+elseif (Test-Path $PSScriptRoot/ccm/utils.psm1) {
+  Import-Module -Name $PSScriptRoot/ccm/utils.psm1 -Force
+  $utils_psm1_avail = $true
+  $IsInGitSubmodule = $false
 }
 else {
   $utils_psm1_version = "unavail"
@@ -270,6 +293,10 @@ if ($ForceLocalVCPKG -And -Not $UseVCPKG) {
 }
 if ($UseVCPKG) {
   Write-Host "vcpkg bootstrap script: bootstrap-vcpkg${bootstrap_ext}"
+    if(($ForceOpenCVVersion -eq 0) -and ($ForceQTVersion -eq 0) -and -Not $ForceDisableVCPKGShallow) {
+      Write-Host "vcpkg will be cloned in shallow mode since baseline is not needed"
+      $CloneVCPKGShallow = $true
+    }
 }
 
 if ((-Not $IsWindows) -and (-Not $IsWindowsPowerShell) -and (-Not $ForceSetupVS)) {
@@ -713,7 +740,7 @@ if ($UseVCPKG -And -Not $ForceLocalVCPKG) {
 if (($null -eq $vcpkg_path) -and $UseVCPKG) {
   if (-Not (Test-Path "$PWD/vcpkg${VCPKGSuffix}")) {
     $shallow_copy = ""
-    if(($ForceOpenCVVersion -eq 0) -and ($ForceQTVersion -eq 0)) {
+    if($CloneVCPKGShallow) {
       $shallow_copy = " --depth 1 "
     }
     $proc = Start-Process -NoNewWindow -PassThru -FilePath $GIT_EXE -ArgumentList "clone $shallow_copy https://github.com/microsoft/vcpkg vcpkg${VCPKGSuffix}"
@@ -926,6 +953,9 @@ if ($BuildDebug) {
     Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $debug_build_folder
   }
 
+  if (-Not (Test-Path $DebugInstallPrefix)) {
+    New-Item -Path $DebugInstallPrefix -ItemType directory -Force | Out-Null
+  }
   New-Item -Path $debug_build_folder -ItemType directory -Force | Out-Null
   Set-Location $debug_build_folder
   $cmake_args = "-G `"$generator`" ${DebugBuildSetup} ${AdditionalBuildSetup} -S .."
@@ -958,6 +988,9 @@ if (-Not $DoNotDeleteBuildFolder) {
   Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $release_build_folder
 }
 
+if (-Not (Test-Path $ReleaseInstallPrefix)) {
+  New-Item -Path $ReleaseInstallPrefix -ItemType directory -Force | Out-Null
+}
 New-Item -Path $release_build_folder -ItemType directory -Force | Out-Null
 Set-Location $release_build_folder
 $cmake_args = "-G `"$generator`" ${ReleaseBuildSetup} ${AdditionalBuildSetup} -S .."
