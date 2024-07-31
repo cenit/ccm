@@ -38,10 +38,3 @@ $OHMYPOSH_EXE = Get-Command "oh-my-posh" -ErrorAction SilentlyContinue | Select-
 if ($OHMYPOSH_EXE) {
   &$OHMYPOSH_EXE init pwsh --config "$env:POSH_THEMES_PATH/agnoster.minimal.omp.json" | Invoke-Expression
 }
-
-if (-Not $IsWindowsPowerShell) {
-  #f45873b3-b655-43a6-b217-97c00aa0db58 PowerToys CommandNotFound module
-
-  Import-Module -Name Microsoft.WinGet.CommandNotFound
-  #f45873b3-b655-43a6-b217-97c00aa0db58
-}

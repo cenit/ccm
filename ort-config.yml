@@ -1,0 +1,4 @@
+# see https://github.com/oss-review-toolkit/ort/blob/main/model/src/main/resources/reference.yml
+
+ort:
+  forceOverwrite: true

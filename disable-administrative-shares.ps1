@@ -1,24 +1,22 @@
 #!/usr/bin/env pwsh
+#Requires -RunAsAdministrator
 
 <#
 
 .SYNOPSIS
-        Deploy-Templates
+        disable-administrative-shares
         Created By: Stefano Sinigardi
-        Created Date: April 06, 2022
-        Last Modified Date: July 31, 2024
+        Created Date: March 14, 2023
+        Last Modified Date: March 14, 2023
 
 .DESCRIPTION
-Deploy custom LaTeX classes and packages to the user's local texmf folder
+Disables administrative shares on the pc (ability to browse \\ip\c$ for C drive remotely)
 
 .PARAMETER DisableInteractive
 Disable script interactivity (useful for CI runs)
 
-.PARAMETER ArtifactName
-Artifact name (e.g. latex-physycom)
-
 .EXAMPLE
-.\Deploy-Templates -DisableInteractive
+.\disable-administrative-shares
 
 #>
 
@@ -47,25 +45,35 @@ SOFTWARE.
 #>
 
 param (
-  [switch]$DisableInteractive = $false,
-  [string]$ArtifactName = ""
+  [switch]$DisableInteractive = $false
 )
 
 $global:DisableInteractive = $DisableInteractive
 
-$deploy_templates_ps1_version = "1.0.6"
+$disable_administrative_shares_version = "0.0.1"
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
 
 $ErrorActionPreference = "SilentlyContinue"
 Stop-Transcript | out-null
 $ErrorActionPreference = "Continue"
-Start-Transcript -Path "$PSScriptRoot/../deploy-templates.log"
+$LogPath = switch ( $IsInGitSubmodule ) {
+  $true { "$PSScriptRoot/../disable-administrative-shares.log" }
+  $false { "$PSScriptRoot/disable-administrative-shares.log" }
+}
+Start-Transcript -Path $LogPath
 
-Write-Host "Deploy-Templates script version ${deploy_templates_ps1_version}, utils module version ${utils_psm1_version}"
+Write-Host "Disable administrative shares script version ${disable_administrative_shares_version}, utils module version ${utils_psm1_version}"
 
 Write-Host -NoNewLine "PowerShell version:"
 $PSVersionTable.PSVersion
+
+if ($IsInGitSubmodule) {
+  Write-Host "Running scripts from a Git Submodule"
+}
+else {
+  Write-Host "Outside of a git submodule"
+}
 
 if ($IsWindowsPowerShell) {
   Write-Host "Running on Windows Powershell, please consider update and running on newer Powershell versions"
@@ -75,41 +83,19 @@ if ($PSVersionTable.PSVersion.Major -lt 5) {
   MyThrow("Your PowerShell version is too old, please update it.")
 }
 
-if ($IsMacOS) {
-  $latex_path = "texmf/tex/latex/local/"
+$registryPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+$name = "LocalAccountTokenFilterPolicy"
+$value = "0"
+
+if (!(Test-Path $registryPath)) {
+  New-Item -Path $registryPath -Force | Out-Null
+  New-ItemProperty -Path $registryPath -Name $name -Value $value -PropertyType DWORD -Force | Out-Null
 }
 else {
-  $latex_path = "texmf/tex/generic/"
+  New-ItemProperty -Path $registryPath -Name $name -Value $value -PropertyType DWORD -Force | Out-Null
 }
 
-$ParentFolder = Split-Path -Path $PSScriptRoot -Parent | Split-Path -Leaf
-
-if ((Test-Path "$PSScriptRoot/../texmf/tex/generic" ) -or ($ParentFolder -match "templates_")) {
-  Write-Host "Parent folder ($ParentFolder) matches a template folder, deploying files to system"
-  New-Item -ItemType Directory -Force -Path "~/${latex_path}" | Out-Null
-  Push-Location "$PSScriptRoot/../texmf/tex/generic"
-  Get-ChildItem -Path . | ForEach-Object {
-    $MyFileName = Split-Path $_ -Leaf
-    if (-Not (Test-Path "~/${latex_path}/$MyFileName" )) {
-      Write-Host "Linking $_ to ~/${latex_path}/$MyFileName"
-      New-Item -ItemType SymbolicLink -Path "~/${latex_path}/$MyFileName" -Target $_ | Out-Null
-    }
-    else{
-      Write-Host "~/${latex_path}/$MyFileName already present"
-    }
-  }
-  Pop-Location
-  Write-Host "Deploy complete!" -ForegroundColor Green
-}
-else {
-  if (-Not $ArtifactName) {
-    MyThrow("Missing necessary parameters")
-  }
-
-  Get-ChildItem -Path $PSScriptRoot/../$ArtifactName/texmf/tex/generic | ForEach-Object {
-    CopyTexFile($_)
-  }
-}
+Write-Host "Administrative shares (C$) disabled" -ForegroundColor Green
 
 $ErrorActionPreference = "SilentlyContinue"
 Stop-Transcript | out-null

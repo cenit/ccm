@@ -7,7 +7,7 @@
         minting-labview
         Created By: Stefano Sinigardi
         Created Date: August 9, 2022
-        Last Modified Date: April 17, 2024
+        Last Modified Date: July 15, 2024
 
 .DESCRIPTION
 Manage unattended LabVIEW install/uninstall procedures for different specified LabVIEW versions (IDE or RunTime)
@@ -46,6 +46,7 @@ NIPKG
 2023Q1-64-IDE
 2023Q1-64-RUNTIME
 2024Q1-64-IDE
+2024Q1-64-RUNTIME
 
 .EXAMPLE
 .\minting-labview -DisableInteractive -LabVIEWVersion 2021SP1-64-IDE -InstallerBasePath G:\labview\2021SP1
@@ -86,13 +87,14 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$minting_labview_version = "4.4.2"
+$minting_labview_version = "4.5.2"
 $script_name = $MyInvocation.MyCommand.Name
 $utils_psm1_avail = $false
 
 if (Test-Path $PSScriptRoot/utils.psm1) {
   Import-Module -Name $PSScriptRoot/utils.psm1 -Force
   $utils_psm1_avail = $true
+  $IsInGitSubmodule = $false
 }
 elseif (Test-Path $PSScriptRoot/cmake/utils.psm1) {
   Import-Module -Name $PSScriptRoot/cmake/utils.psm1 -Force
@@ -106,6 +108,11 @@ elseif (Test-Path $PSScriptRoot/ci/utils.psm1) {
 }
 elseif (Test-Path $PSScriptRoot/ccm/utils.psm1) {
   Import-Module -Name $PSScriptRoot/ccm/utils.psm1 -Force
+  $utils_psm1_avail = $true
+  $IsInGitSubmodule = $false
+}
+elseif (Test-Path $PSScriptRoot/scripts/utils.psm1) {
+  Import-Module -Name $PSScriptRoot/scripts/utils.psm1 -Force
   $utils_psm1_avail = $true
   $IsInGitSubmodule = $false
 }
@@ -161,13 +168,14 @@ if (($LabVIEWVersion -eq "NIPKG") -or $UninstallAll) {
   $BaseVersion = 2024
   $64bitVersion = $true
   $OpenPortsOnFirewall = $false
+  $DisableSourceOnlyVIs = $true
   $installers = @(
     [LabVIEWInstaller]@{
-      FileName            = "NIPackageManager24.3.0.exe";
+      FileName            = "NIPackageManager24.5.0.exe";
       Legacy              = $false;
       Requires7Zip        = $false;
       AvailableOnInternet = $true;
-      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-package-manager/installers/NIPackageManager24.3.0.exe"
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-package-manager/installers/NIPackageManager24.5.0.exe"
     }
   )
 }
@@ -624,6 +632,7 @@ elseif ($LabVIEWVersion -eq "2018SP1-64-RUNTIME") {
   $BaseVersion = 2018
   $64bitVersion = $true
   $OpenPortsOnFirewall = $false
+  $DisableSourceOnlyVIs = $true
   $installers = @(
     [LabVIEWInstaller]@{
       FileName            = "LVRTE2018SP1_f4-64std.zip";
@@ -852,6 +861,7 @@ elseif ($LabVIEWVersion -eq "2020SP1-64-RUNTIME") {
   $BaseVersion = 2020
   $64bitVersion = $true
   $OpenPortsOnFirewall = $false
+  $DisableSourceOnlyVIs = $true
   $installers = @(
     [LabVIEWInstaller]@{
       FileName            = "ni-labview-2020-runtime-engine_20.1.1_offline.iso";
@@ -908,6 +918,7 @@ elseif ($LabVIEWVersion -eq "2021-64-RUNTIME") {
   $BaseVersion = 2021
   $64bitVersion = $true
   $OpenPortsOnFirewall = $false
+  $DisableSourceOnlyVIs = $true
   $installers = @(
     [LabVIEWInstaller]@{
       FileName            = "ni-labview-2021-runtime-engine_21.0.0_offline.iso";
@@ -978,6 +989,7 @@ elseif ($LabVIEWVersion -eq "2021SP1-32-RUNTIME") {
   $BaseVersion = 2021
   $64bitVersion = $false
   $OpenPortsOnFirewall = $false
+  $DisableSourceOnlyVIs = $true
   $installers = @(
     [LabVIEWInstaller]@{
       FileName            = "ni-labview-2021-runtime-engine-x86_21.1.2_offline.iso";
@@ -1055,6 +1067,7 @@ elseif ($LabVIEWVersion -eq "2021SP1-64-RUNTIME") {
   $BaseVersion = 2021
   $64bitVersion = $true
   $OpenPortsOnFirewall = $false
+  $DisableSourceOnlyVIs = $true
   $installers = @(
     [LabVIEWInstaller]@{
       FileName            = "ni-labview-2021-runtime-engine_21.1.2_offline.iso";
@@ -1125,6 +1138,7 @@ elseif ($LabVIEWVersion -eq "2022Q3-32-RUNTIME") {
   $BaseVersion = 2022
   $64bitVersion = $false
   $OpenPortsOnFirewall = $false
+  $DisableSourceOnlyVIs = $true
   $installers = @(
     [LabVIEWInstaller]@{
       FileName            = "ni-labview-2022-runtime-engine-x86_22.3.0_offline.iso";
@@ -1195,6 +1209,7 @@ elseif ($LabVIEWVersion -eq "2022Q3-64-RUNTIME") {
   $BaseVersion = 2022
   $64bitVersion = $true
   $OpenPortsOnFirewall = $false
+  $DisableSourceOnlyVIs = $true
   $installers = @(
     [LabVIEWInstaller]@{
       FileName            = "ni-labview-2022-runtime-engine_22.3.0_offline.iso";
@@ -1244,6 +1259,7 @@ elseif ($LabVIEWVersion -eq "2023Q1-64-RUNTIME") {
   $BaseVersion = 2023
   $64bitVersion = $true
   $OpenPortsOnFirewall = $false
+  $DisableSourceOnlyVIs = $true
   $installers = @(
     [LabVIEWInstaller]@{
       FileName            = "ni-labview-2023-runtime-engine_23.1.0_offline.iso";
@@ -1307,6 +1323,28 @@ elseif ($LabVIEWVersion -eq "2024Q1-64-IDE") {
       Requires7Zip        = $false;
       AvailableOnInternet = $true;
       DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-v/ni-vivado-2021.1-cg/24.1/offline/ni-vivado-2021.1-cg_24.1.0_offline.iso"
+    }
+  )
+}
+elseif ($LabVIEWVersion -eq "2024Q1-64-RUNTIME") {
+  $BaseVersion = 2024
+  $64bitVersion = $true
+  $OpenPortsOnFirewall = $false
+  $DisableSourceOnlyVIs = $true
+  $installers = @(
+    [LabVIEWInstaller]@{
+      FileName            = "ni-labview-2024-runtime-engine_24.1.1_offline.iso";
+      Legacy              = $false;
+      Requires7Zip        = $false;
+      AvailableOnInternet = $true;
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-l/ni-labview-2024-runtime-engine/24.1/offline/ni-labview-2024-runtime-engine_24.1.1_offline.iso"
+    }
+    [LabVIEWInstaller]@{
+      FileName            = "ni-usrp_23.5.0_offline.iso";
+      Legacy              = $false;
+      Requires7Zip        = $false;
+      AvailableOnInternet = $true;
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-u/ni-usrp/23.5/offline/ni-usrp_23.5.0_offline.iso"
     }
   )
 }
@@ -1501,6 +1539,10 @@ if ($OpenPortsOnFirewall -and -Not $DryRun) {
 [LabVIEW]
 IsFirstLaunch=False
 ShowWelcomeOnLaunch=False
+enableAutoWire=False
+autoRouteWires=False
+DefaultLabelPositionBD=11
+DefaultLabelPositionIndBD=5
 $VI_Server_Enabled
 "@
     Out-File -FilePath $LabVIEW_INI_Path -InputObject $LabVIEW_INI_Content -Encoding UTF8
@@ -1546,6 +1588,10 @@ if (-Not $DisableSourceOnlyVIs -and -Not $DryRun) {
 [LabVIEW]
 IsFirstLaunch=False
 ShowWelcomeOnLaunch=False
+enableAutoWire=False
+autoRouteWires=False
+DefaultLabelPositionBD=11
+DefaultLabelPositionIndBD=5
 $source_only_VIs
 "@
     Out-File -FilePath $LabVIEW_INI_Path -InputObject $LabVIEW_INI_Content -Encoding UTF8

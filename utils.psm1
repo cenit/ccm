@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 #>
 
-$utils_psm1_version = "1.3.0"
+$utils_psm1_version = "1.3.2"
 $IsWindowsPowerShell = switch ( $PSVersionTable.PSVersion.Major ) {
   5 { $true }
   4 { $true }
@@ -280,7 +280,7 @@ function DownloadAria2() {
 }
 
 function DownloadLicencpp() {
-  $licencpp_version = "0.2.1"
+  $licencpp_version = "0.2.5"
   Write-Host "Downloading a portable version of licencpp v${licencpp_version}" -ForegroundColor Yellow
   if ($IsWindows -or $IsWindowsPowerShell) {
     $basename = "licencpp-Windows"

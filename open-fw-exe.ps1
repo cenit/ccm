@@ -1,24 +1,28 @@
 #!/usr/bin/env pwsh
+#Requires -RunAsAdministrator
 
 <#
 
 .SYNOPSIS
-        Deploy-Templates
+        open-fw-exe
         Created By: Stefano Sinigardi
-        Created Date: April 06, 2022
-        Last Modified Date: July 31, 2024
+        Created Date: February 15, 2023
+        Last Modified Date: February 15, 2023
 
 .DESCRIPTION
-Deploy custom LaTeX classes and packages to the user's local texmf folder
+Open Firewall for a specific executable
 
 .PARAMETER DisableInteractive
 Disable script interactivity (useful for CI runs)
 
-.PARAMETER ArtifactName
-Artifact name (e.g. latex-physycom)
+.PARAMETER ExecutablePath
+Path to the executable to open the firewall for
+
+.PARAMETER FirewallRuleName
+Firewall rule name (not mandatory, if not given the executable name will be used also for the rule name)
 
 .EXAMPLE
-.\Deploy-Templates -DisableInteractive
+.\open-fw-exe -ExecutablePath C:\MyApp\MyExe.exe
 
 #>
 
@@ -48,24 +52,36 @@ SOFTWARE.
 
 param (
   [switch]$DisableInteractive = $false,
-  [string]$ArtifactName = ""
+  [string]$ExecutablePath = "",
+  [string]$FirewallRuleName = ""
 )
 
 $global:DisableInteractive = $DisableInteractive
 
-$deploy_templates_ps1_version = "1.0.6"
+$open_fw_exe_version = "0.0.1"
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
 
 $ErrorActionPreference = "SilentlyContinue"
 Stop-Transcript | out-null
 $ErrorActionPreference = "Continue"
-Start-Transcript -Path "$PSScriptRoot/../deploy-templates.log"
+$LogPath = switch ( $IsInGitSubmodule ) {
+  $true { "$PSScriptRoot/../open-fw-exe.log" }
+  $false { "$PSScriptRoot/open-fw-exe.log" }
+}
+Start-Transcript -Path $LogPath
 
-Write-Host "Deploy-Templates script version ${deploy_templates_ps1_version}, utils module version ${utils_psm1_version}"
+Write-Host "Open Firewall for executables script version ${open_fw_exe_version}, utils module version ${utils_psm1_version}"
 
 Write-Host -NoNewLine "PowerShell version:"
 $PSVersionTable.PSVersion
+
+if ($IsInGitSubmodule) {
+  Write-Host "Running scripts from a Git Submodule"
+}
+else {
+  Write-Host "Outside of a git submodule"
+}
 
 if ($IsWindowsPowerShell) {
   Write-Host "Running on Windows Powershell, please consider update and running on newer Powershell versions"
@@ -75,40 +91,21 @@ if ($PSVersionTable.PSVersion.Major -lt 5) {
   MyThrow("Your PowerShell version is too old, please update it.")
 }
 
-if ($IsMacOS) {
-  $latex_path = "texmf/tex/latex/local/"
+if ($ExecutablePath -eq "") {
+  MyThrow("Executable path is required")
+}
+
+$ExecutablePathFixed = Get-ChildItem ${ExecutablePath} -ErrorAction SilentlyContinue
+
+if(-not $ExecutablePathFixed) {
+  MyThrow("Executable path ${ExecutablePath} not found")
 }
 else {
-  $latex_path = "texmf/tex/generic/"
-}
-
-$ParentFolder = Split-Path -Path $PSScriptRoot -Parent | Split-Path -Leaf
-
-if ((Test-Path "$PSScriptRoot/../texmf/tex/generic" ) -or ($ParentFolder -match "templates_")) {
-  Write-Host "Parent folder ($ParentFolder) matches a template folder, deploying files to system"
-  New-Item -ItemType Directory -Force -Path "~/${latex_path}" | Out-Null
-  Push-Location "$PSScriptRoot/../texmf/tex/generic"
-  Get-ChildItem -Path . | ForEach-Object {
-    $MyFileName = Split-Path $_ -Leaf
-    if (-Not (Test-Path "~/${latex_path}/$MyFileName" )) {
-      Write-Host "Linking $_ to ~/${latex_path}/$MyFileName"
-      New-Item -ItemType SymbolicLink -Path "~/${latex_path}/$MyFileName" -Target $_ | Out-Null
-    }
-    else{
-      Write-Host "~/${latex_path}/$MyFileName already present"
-    }
+  if ($FirewallRuleName -eq "") {
+    $FirewallRuleName = Split-Path $ExecutablePathFixed -leaf
   }
-  Pop-Location
-  Write-Host "Deploy complete!" -ForegroundColor Green
-}
-else {
-  if (-Not $ArtifactName) {
-    MyThrow("Missing necessary parameters")
-  }
-
-  Get-ChildItem -Path $PSScriptRoot/../$ArtifactName/texmf/tex/generic | ForEach-Object {
-    CopyTexFile($_)
-  }
+  New-NetFirewallRule -DisplayName "$FirewallRuleName" -Action Allow -EdgeTraversalPolicy Allow -LocalPort Any -Program "$ExecutablePathFixed" | Out-Null
+  Write-Host "Firewall rule created for $FirewallRuleName" -ForegroundColor Green
 }
 
 $ErrorActionPreference = "SilentlyContinue"
