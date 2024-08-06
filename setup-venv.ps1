@@ -6,7 +6,7 @@
         setup-venv
         Created By: Stefano Sinigardi
         Created Date: July 15, 2024
-        Last Modified Date: July 15, 2024
+        Last Modified Date: August 6, 2024
 
 .DESCRIPTION
 Setup a python virtual environment with venv
@@ -55,7 +55,7 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$setup_venv_ps1_version = "1.1.0"
+$setup_venv_ps1_version = "1.2.0"
 $script_name = $MyInvocation.MyCommand.Name
 if (Test-Path $PSScriptRoot/utils.psm1) {
   Import-Module -Name $PSScriptRoot/utils.psm1 -Force
@@ -126,7 +126,10 @@ else {
 
 $PYTHON_EXE = Get-Command "python" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
 if (-Not $PYTHON_EXE) {
-  MyThrow("Could not find python, please install it")
+  $PYTHON_EXE = Get-Command "python3" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
+  if (-Not $PYTHON_EXE) {
+    MyThrow("Could not find python, please install it")
+  }
 }
 else {
   Write-Host "Using python from ${PYTHON_EXE}"
@@ -142,12 +145,7 @@ if ($Deactivate) {
 
 $venv_dir = "$PSCustomScriptRoot/.venv"
 if ($ActivateOnly) {
-  $activate_script = "$venv_dir/Scripts/Activate.ps1"
-  if (-Not (Test-Path $activate_script)) {
-    MyThrow("Could not find activate script at $activate_script")
-  }
-  Write-Host "Activating venv"
-  & $activate_script
+  activateVenv($venv_dir)
   exit 0
 }
 
@@ -170,23 +168,14 @@ if (-Not ($gitignore_content -contains ".venv")) {
   Add-Content -Path $gitignore_path -Value ".venv"
 }
 
-if ($IsWindowsPowerShell -or $IsWindows) {
-  $activate_script = "$venv_dir/Scripts/Activate.ps1"
-}
-else {
-  $activate_script = "$venv_dir/bin/activate"
-}
-
-if (-Not (Test-Path $activate_script)) {
-  MyThrow("Could not find activate script at $activate_script")
-}
-
-Write-Host "Activating venv"
-& $activate_script
+activateVenv($venv_dir)
 
 $PYTHON_VENV_EXE = Get-Command "python" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
 if (-Not $PYTHON_VENV_EXE) {
-  MyThrow("Could not find python in venv, something is broken")
+  $PYTHON_VENV_EXE = Get-Command "python3" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
+  if (-Not $PYTHON_VENV_EXE) {
+    MyThrow("Could not find python in venv, something is broken")
+  }
 }
 else {
   Write-Host "Using python from ${PYTHON_VENV_EXE}"
@@ -200,13 +189,15 @@ else {
   $azure_ci = $false
 }
 
-Write-Host "Ensuring pip is available"
-$proc = Start-Process -NoNewWindow -PassThru -FilePath $PYTHON_VENV_EXE -ArgumentList " -m ensurepip --upgrade"
-$handle = $proc.Handle
-$proc.WaitForExit()
-$exitCode = $proc.ExitCode
-if (-Not ($exitCode -eq 0)) {
-  MyThrow("Unable to ensure pip is available! Exited with error code $exitCode.")
+if (-Not $IsMacOS) {
+  Write-Host "Ensuring pip is available"
+  $proc = Start-Process -NoNewWindow -PassThru -FilePath $PYTHON_VENV_EXE -ArgumentList " -m ensurepip --upgrade"
+  $handle = $proc.Handle
+  $proc.WaitForExit()
+  $exitCode = $proc.ExitCode
+  if (-Not ($exitCode -eq 0)) {
+    MyThrow("Unable to ensure pip is available! Exited with error code $exitCode.")
+  }
 }
 
 $base_packages = " pip setuptools wheel pyinstaller pytest pytest-cov test-utils"

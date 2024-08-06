@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 #>
 
-$utils_psm1_version = "1.3.2"
+$utils_psm1_version = "1.4.0"
 $IsWindowsPowerShell = switch ( $PSVersionTable.PSVersion.Major ) {
   5 { $true }
   4 { $true }
@@ -79,6 +79,23 @@ else {
   $IsInGitSubmodule = $false
 }
 Pop-Location
+
+
+function activateVenv([string]$VenvPath) {
+  if ($IsWindowsPowerShell -or $IsWindows) {
+    $activate_script = "$VenvPath/Scripts/Activate.ps1"
+  }
+  else {
+    $activate_script = "$VenvPath/bin/Activate.ps1"
+  }
+
+  Write-Host "Activating venv"
+  if (-Not (Test-Path $activate_script)) {
+    MyThrow("Could not find activate script at $activate_script")
+  }
+  & $activate_script
+}
+
 
 function getProgramFiles32bit() {
   $out = ${env:PROGRAMFILES(X86)}
@@ -466,6 +483,7 @@ Export-ModuleMember -Variable osArchitecture
 Export-ModuleMember -Variable vcpkgArchitecture
 Export-ModuleMember -Variable vsArchitecture
 Export-ModuleMember -Variable ExecutableSuffix
+Export-ModuleMember -Function activateVenv
 Export-ModuleMember -Function getProgramFiles32bit
 Export-ModuleMember -Function getLatestVisualStudioWithDesktopWorkloadPath
 Export-ModuleMember -Function getLatestVisualStudioWithDesktopWorkloadVersion
