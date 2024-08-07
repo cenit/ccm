@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 #>
 
-$utils_psm1_version = "1.4.0"
+$utils_psm1_version = "1.4.1"
 $IsWindowsPowerShell = switch ( $PSVersionTable.PSVersion.Major ) {
   5 { $true }
   4 { $true }
@@ -89,11 +89,20 @@ function activateVenv([string]$VenvPath) {
     $activate_script = "$VenvPath/bin/Activate.ps1"
   }
 
-  Write-Host "Activating venv"
-  if (-Not (Test-Path $activate_script)) {
-    MyThrow("Could not find activate script at $activate_script")
+  $activate_script = Resolve-Path $activate_script
+  $VenvPath = Resolve-Path $VenvPath
+
+  if ($env:VIRTUAL_ENV -eq $VenvPath) {
+    Write-Host "Venv already activated"
+    return
   }
-  & $activate_script
+  else {
+    Write-Host "Activating venv"
+    if (-Not (Test-Path $activate_script)) {
+      MyThrow("Could not find activate script at $activate_script")
+    }
+    & $activate_script
+  }
 }
 
 
