@@ -217,7 +217,7 @@ if (-Not ($exitCode -eq 0)) {
 $requirements_path = "$PSCustomScriptRoot/requirements.txt"
 if (Test-Path $requirements_path) {
   Write-Host "Installing requirements"
-  $proc = Start-Process -NoNewWindow -PassThru -FilePath $PYTHON_VENV_EXE -ArgumentList " -m pip install -r requirements.txt"
+  $proc = Start-Process -NoNewWindow -PassThru -FilePath $PYTHON_VENV_EXE -ArgumentList " -m pip install --upgrade -r requirements.txt"
   $handle = $proc.Handle
   $proc.WaitForExit()
   $exitCode = $proc.ExitCode
