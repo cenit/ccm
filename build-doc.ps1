@@ -6,7 +6,7 @@
         build-doc
         Created By: Stefano Sinigardi
         Created Date: February 18, 2019
-        Last Modified Date: July 31, 2024
+        Last Modified Date: August 22, 2024
 
 .DESCRIPTION
 Build documentation with pandoc and latex
@@ -43,6 +43,15 @@ Disable merging of PDF files if they match the same radix basename (single token
 
 .PARAMETER DisableRSVGConvert
 Disable tool necessary to convert badges and/or any SVG into format latex-compatible (automatically invoked by pandoc if necessary when converting markdown into pdf)
+
+.PARAMETER LookAllSubfolders
+Look into all subfolders for documents to convert, and not just typical ones (wiki, md, doc)
+
+.PARAMETER CreateIntermediateTexFiles
+Create also intermediate TeX files from markdown files
+
+.PARAMETER DoNotBuildPDFFromTexFiles
+Do not convert TeX files to final PDF files
 
 .PARAMETER DisableMermaidFilter
 Disable tool necessary to convert mermaid code into diagrams inside markdown documents
@@ -101,13 +110,16 @@ param (
   [switch]$DisableTeX = $false,
   [switch]$CreateDocx = $false,
   [switch]$EnableSphinx = $false,
+  [switch]$LookAllSubfolders = $false,
+  [switch]$CreateIntermediateTexFiles = $false,
+  [switch]$DoNotBuildPDFFromTexFiles = $false,
   [string]$SkipMatching = "",
   [switch]$RefreshGitSubmodules = $false
 )
 
 $global:DisableInteractive = $DisableInteractive
 
-$build_doc_ps1_version = "2.6.2"
+$build_doc_ps1_version = "3.1.0"
 $script_name = $MyInvocation.MyCommand.Name
 if (Test-Path $PSScriptRoot/utils.psm1) {
   Import-Module -Name $PSScriptRoot/utils.psm1 -Force
@@ -217,6 +229,13 @@ if (-Not $GIT_EXE) {
 else {
   Write-Host "Using git from ${GIT_EXE}"
 }
+
+$gitModulesPath = Join-Path -Path (Get-Location) -ChildPath ".gitmodules"
+if (-Not (Test-Path $gitModulesPath)) {
+    Write-Output "No .gitmodules file found. The repository may not contain submodules."
+    exit
+}
+$gitModulesContent = Get-Content $gitModulesPath
 
 if ($RefreshGitSubmodules) {
   Write-Host "This tool will download git submodules now"
@@ -387,15 +406,23 @@ author: `"${OverlayAuthor}`"
 }
 
 if (-Not $DisablePandoc) {
-  $mditems = @(Get-ChildItem "." -Filter *.md)
-  if (Test-Path -Path "./wiki") {
-    $mditems += @(Get-ChildItem "./wiki" -Filter *.md)
+  if ($LookAllSubfolders) {
+    $mditems = @(Get-ChildItem -Recurse -Filter *.md)
   }
-  if (Test-Path -Path "./doc") {
-    $mditems += @(Get-ChildItem "./doc" -Filter *.md)
-  }
-  if (Test-Path -Path "./man") {
-    $mditems += @(Get-ChildItem "./man" -Filter *.md)
+  else {
+    $mditems = @(Get-ChildItem -Filter *.md)
+    if (Test-Path -Path "./wiki") {
+      $mditems += @(Get-ChildItem "./wiki" -Filter *.md)
+    }
+    if (Test-Path -Path "./doc") {
+      $mditems += @(Get-ChildItem "./doc" -Filter *.md)
+    }
+    if (Test-Path -Path "./man") {
+      $mditems += @(Get-ChildItem "./man" -Filter *.md)
+    }
+    if (Test-Path -Path "./md") {
+      $mditems += @(Get-ChildItem "./md" -Filter *.md)
+    }
   }
   $mditems | Foreach-Object {
     $file_basename = $_.BaseName
@@ -403,11 +430,17 @@ if (-Not $DisablePandoc) {
     $file_basename_first_token = $file_basename_first_token[0]
     $file_directory = $_.Directory
     $file_fullname = $_.FullName
+    $folderPath = $_.DirectoryName.Replace((Get-Location).Path + "\", "")
+    $submoduleEntry = $gitModulesContent -match "path = $folderPath"
+    if ($submoduleEntry) {
+        Write-Host "Skipping file in a git submodule: $($_.FullName)"
+        return
+    }
+
     if ($SkipMatching -ne "" -and $file_basename -match $SkipMatching) {
       Write-Host "Skipping $file_fullname"
       return
     }
-    Write-Host "Building $file_basename.pdf"
     if (Test-Path -Path "${file_directory}/${file_basename}.yml") {
       $yaml_file = "${file_directory}/${file_basename}.yml"
       Write-Host "Using ${file_directory}/${file_basename}.yml"
@@ -428,13 +461,47 @@ if (-Not $DisablePandoc) {
       }
     }
     Push-Location $file_directory
-    $pandoc_args = " $mermaidfilter_pandoc $yaml_file `"${file_directory}/${file_basename}.md`" --pdf-engine=xelatex --resource-path=wiki/ --resource-path=figures/ -o `"${file_basename}.pdf`""
-    $proc = Start-Process -NoNewWindow -PassThru -FilePath $PANDOC_EXE -ArgumentList $pandoc_args
-    $handle = $proc.Handle
-    $proc.WaitForExit()
-    $exitCode = $proc.ExitCode
-    if (-Not ($exitCode -eq 0)) {
-      MyThrow("Build failed! Exited with error code $exitCode.")
+    $i = 0
+    $new_pdf = "${file_basename}_old.pdf"
+    while (Test-Path -Path "${new_pdf}") {
+      $i++
+      $new_pdf = "${file_basename}_old_$i.pdf"
+    }
+    if (Test-Path -Path "${file_basename}.pdf") {
+      Write-Host "Renaming ${file_basename}.pdf to $new_pdf"
+      Rename-Item -Path "${file_basename}.pdf" -NewName "$new_pdf"
+    }
+    if (-Not $DoNotBuildPDFFromTexFiles) {
+      Write-Host "Building $file_basename.pdf"
+      if ($yaml_file -ne "") {
+        $pandoc_args = " $mermaidfilter_pandoc `"$yaml_file`" `"${file_directory}/${file_basename}.md`" --pdf-engine=xelatex --resource-path=wiki/ --resource-path=figures/ -o `"${file_basename}.pdf`""
+      }
+      else {
+        $pandoc_args = " $mermaidfilter_pandoc `"${file_directory}/${file_basename}.md`" --pdf-engine=xelatex --resource-path=wiki/ --resource-path=figures/ -o `"${file_basename}.pdf`""
+      }
+      $proc = Start-Process -NoNewWindow -PassThru -FilePath $PANDOC_EXE -ArgumentList $pandoc_args
+      $handle = $proc.Handle
+      $proc.WaitForExit()
+      $exitCode = $proc.ExitCode
+      if (-Not ($exitCode -eq 0)) {
+        MyThrow("Build failed! Exited with error code $exitCode.")
+      }
+    }
+    if ($CreateIntermediateTexFiles) {
+      Write-Host "Building $file_basename.tex"
+      if ($yaml_file -ne "") {
+        $pandoc_args = " $mermaidfilter_pandoc `"$yaml_file`" `"${file_directory}/${file_basename}.md`" --standalone --pdf-engine=xelatex --resource-path=wiki/ --resource-path=figures/ -o `"${file_basename}.tex`""
+      }
+      else {
+        $pandoc_args = " $mermaidfilter_pandoc `"${file_directory}/${file_basename}.md`" --standalone --pdf-engine=xelatex --resource-path=wiki/ --resource-path=figures/ -o `"${file_basename}.tex`""
+      }
+      $proc = Start-Process -NoNewWindow -PassThru -FilePath $PANDOC_EXE -ArgumentList $pandoc_args
+      $handle = $proc.Handle
+      $proc.WaitForExit()
+      $exitCode = $proc.ExitCode
+      if (-Not ($exitCode -eq 0)) {
+        MyThrow("Build failed! Exited with error code $exitCode.")
+      }
     }
     if ($PDFTK_EXE -And $attachitems -And -Not $DisablePdftk) {
       $pdftk_args = " ${file_basename}.pdf $attachitems cat output ${file_basename}_full.pdf"
