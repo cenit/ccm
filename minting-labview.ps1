@@ -7,7 +7,7 @@
         minting-labview
         Created By: Stefano Sinigardi
         Created Date: August 9, 2022
-        Last Modified Date: July 15, 2024
+        Last Modified Date: October 11, 2024
 
 .DESCRIPTION
 Manage unattended LabVIEW install/uninstall procedures for different specified LabVIEW versions (IDE or RunTime)
@@ -87,7 +87,7 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$minting_labview_version = "4.5.2"
+$minting_labview_version = "4.5.3"
 $script_name = $MyInvocation.MyCommand.Name
 $utils_psm1_avail = $false
 
@@ -171,11 +171,11 @@ if (($LabVIEWVersion -eq "NIPKG") -or $UninstallAll) {
   $DisableSourceOnlyVIs = $true
   $installers = @(
     [LabVIEWInstaller]@{
-      FileName            = "NIPackageManager24.5.0.exe";
+      FileName            = "NIPackageManager24.8.0.exe";
       Legacy              = $false;
       Requires7Zip        = $false;
       AvailableOnInternet = $true;
-      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-package-manager/installers/NIPackageManager24.5.0.exe"
+      DownloadLink        = "https://download.ni.com/support/nipkg/products/ni-package-manager/installers/NIPackageManager24.8.0.exe"
     }
   )
 }
