@@ -200,7 +200,7 @@ if (-Not $IsMacOS) {
   }
 }
 
-$base_packages = " pip setuptools wheel pyinstaller pytest pytest-cov test-utils"
+$base_packages = " pip setuptools wheel flake8 pyinstaller pytest pytest-cov test-utils"
 if ($azure_ci) {
   $base_packages += " pytest-azurepipelines"
 }
