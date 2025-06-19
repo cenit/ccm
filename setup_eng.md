@@ -93,7 +93,7 @@ In the upper part of the window that pops-up, select the PATH variable, click on
 
 Again in the upper part of the window that pops-up, create a new environment variables with name `WORKSPACE` and value the full path noted down before.
 
-1) Create a softlink to the `ninja` executable in the bin folder. To do so, open a Powershell (as a standard user) and type
+5) Create a softlink to the `ninja` executable in the bin folder. To do so, open a Powershell (as a standard user) and type
 
 ```pwsh
 PS \>             cmd /c mklink $env:USERPROFILE\bin\ninja.exe "$env:USERPROFILE\AppData\Local\Microsoft\WinGet\Packages\Ninja-build.Ninja_Microsoft.Winget.Source_8wekyb3d8bbwe\ninja.exe"

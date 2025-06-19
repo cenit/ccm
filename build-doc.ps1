@@ -431,7 +431,8 @@ if (-Not $DisablePandoc) {
     $file_directory = $_.Directory
     $file_fullname = $_.FullName
     $folderPath = $_.DirectoryName.Replace((Get-Location).Path + "\", "")
-    $submoduleEntry = $gitModulesContent -match "path = $folderPath"
+    $escapedFolderPath = [regex]::Escape($folderPath)
+    $submoduleEntry = $gitModulesContent -match ("path = " + $escapedFolderPath)
     if ($submoduleEntry) {
         Write-Host "Skipping file in a git submodule: $($_.FullName)"
         return

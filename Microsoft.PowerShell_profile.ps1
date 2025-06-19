@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 
 $utils_psm1_avail = $false
-$load_utils_psm1 = $false
+$load_utils_psm1 = $true
 $Verbose = $false
 $profile_ps1_version = "1.0.0"
 
@@ -42,7 +42,7 @@ if ($OHMYPOSH_EXE) {
   &$OHMYPOSH_EXE init pwsh --config "$env:POSH_THEMES_PATH/agnoster.minimal.omp.json" | Invoke-Expression
 }
 
-if ($PSVersionTable.PSVersion.Major -gt 5) {
+if (-Not $IsWindowsPowerShell -and $IsWindows) {
   #f45873b3-b655-43a6-b217-97c00aa0db58 PowerToys CommandNotFound module
   Import-Module -Name Microsoft.WinGet.CommandNotFound
 }
