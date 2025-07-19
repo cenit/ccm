@@ -6,7 +6,7 @@
         setup-venv
         Created By: Stefano Sinigardi
         Created Date: July 15, 2024
-        Last Modified Date: August 6, 2024
+        Last Modified Date: November 4, 2024
 
 .DESCRIPTION
 Setup a python virtual environment with venv
@@ -16,6 +16,15 @@ Disable script interactivity (useful for CI runs)
 
 .PARAMETER DoNotUpdateTOOL
 Do not update the tool before running the build (valid only if tool is git-enabled)
+
+.PARAMETER ActivateOnly
+Activate the virtual environment only
+
+.PARAMETER CPUOnlyRequirements
+Use requirements-cpu.txt instead of requirements.txt
+
+.PARAMETER Deactivate
+Deactivate the virtual environment
 
 .EXAMPLE
 .\setup-venv -DisableInteractive
@@ -50,12 +59,13 @@ param (
   [switch]$DisableInteractive = $false,
   [switch]$DoNotUpdateTOOL = $false,
   [switch]$ActivateOnly = $false,
+  [switch]$CPUOnlyRequirements = $false,
   [switch]$Deactivate = $false
 )
 
 $global:DisableInteractive = $DisableInteractive
 
-$setup_venv_ps1_version = "1.2.0"
+$setup_venv_ps1_version = "1.3.0"
 $script_name = $MyInvocation.MyCommand.Name
 if (Test-Path $PSScriptRoot/utils.psm1) {
   Import-Module -Name $PSScriptRoot/utils.psm1 -Force
@@ -200,7 +210,7 @@ if (-Not $IsMacOS) {
   }
 }
 
-$base_packages = " pip setuptools wheel flake8 pyinstaller pytest pytest-cov test-utils"
+$base_packages = " pip setuptools wheel pyinstaller pytest pytest-cov test-utils pip-system-certs"
 if ($azure_ci) {
   $base_packages += " pytest-azurepipelines"
 }
@@ -214,16 +224,15 @@ if (-Not ($exitCode -eq 0)) {
   MyThrow("Unable to install pip! Exited with error code $exitCode.")
 }
 
-$requirements_path = "$PSCustomScriptRoot/requirements.txt"
+if($CPUOnlyRequirements) {
+  $requirements_path = "$PSCustomScriptRoot/requirements-cpu.txt"
+}
+else {
+  $requirements_path = "$PSCustomScriptRoot/requirements.txt"
+}
 if (Test-Path $requirements_path) {
   Write-Host "Installing requirements"
-  $proc = Start-Process -NoNewWindow -PassThru -FilePath $PYTHON_VENV_EXE -ArgumentList " -m pip install --upgrade -r requirements.txt"
-  $handle = $proc.Handle
-  $proc.WaitForExit()
-  $exitCode = $proc.ExitCode
-  if (-Not ($exitCode -eq 0)) {
-    MyThrow("Unable to compile requirements! Exited with error code $exitCode.")
-  }
+  Install-RequirementsWithRetry -PythonPath $PYTHON_VENV_EXE -FilePath $requirements_path -MaxRetries 20 -DelaySeconds 3
 }
 
 $ErrorActionPreference = "SilentlyContinue"

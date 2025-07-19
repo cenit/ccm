@@ -105,6 +105,43 @@ function activateVenv([string]$VenvPath) {
   }
 }
 
+function Install-RequirementsWithRetry {
+  param(
+      [string]$PythonPath   = 'python',
+      [string]$FilePath     = 'requirements.txt',
+      [int]   $MaxRetries   = 5,
+      [int]   $DelaySeconds = 5
+  )
+
+  $attempt = 0
+  do {
+      $attempt++
+      Write-Host "[$attempt/$MaxRetries] Installing from $FilePath ..."
+
+      # Run pip and capture both its output and exit code
+      $output = & $PythonPath -m pip install --upgrade -r $FilePath 2>&1
+      $exit   = $LASTEXITCODE
+
+      if ($exit -eq 0) {
+          Write-Host "Success on attempt $attempt." -ForegroundColor Green
+          return
+      }
+
+      # Check for a 403 in pip's output
+      if ($output -match 'HTTP Error 403') {
+          Write-Host "Received 403 - proxy is probably throttling.  Waiting $DelaySeconds s before retry..." -ForegroundColor Yellow
+          Start-Sleep -Seconds $DelaySeconds
+      }
+      else {
+          Write-Host "pip failed with an unexpected error (exit code $exit):" -ForegroundColor Red
+          Write-Host $output -ForegroundColor Red
+          return
+      }
+
+  } while ($attempt -lt $MaxRetries)
+
+  Write-Host "Failed to install after $MaxRetries attempts." -ForegroundColor Red
+}
 
 function getProgramFiles32bit() {
   $out = ${env:PROGRAMFILES(X86)}
@@ -493,6 +530,7 @@ Export-ModuleMember -Variable vcpkgArchitecture
 Export-ModuleMember -Variable vsArchitecture
 Export-ModuleMember -Variable ExecutableSuffix
 Export-ModuleMember -Function activateVenv
+Export-ModuleMember -Function Install-RequirementsWithRetry
 Export-ModuleMember -Function getProgramFiles32bit
 Export-ModuleMember -Function getLatestVisualStudioWithDesktopWorkloadPath
 Export-ModuleMember -Function getLatestVisualStudioWithDesktopWorkloadVersion
