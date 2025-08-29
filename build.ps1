@@ -6,7 +6,7 @@
         build
         Created By: Stefano Sinigardi
         Created Date: February 18, 2019
-        Last Modified Date: May 12, 2024
+        Last Modified Date: August 13, 2025
 
 .DESCRIPTION
 Build tool using CMake, trying to properly setup the environment around compiler
@@ -41,6 +41,9 @@ Enable OpenMP feature
 .PARAMETER EnableVTK
 Enable VTK feature
 
+.PARAMETER EnablePCL
+Enable PCL feature
+
 .PARAMETER EnableTEST
 Enable TEST feature
 
@@ -49,6 +52,9 @@ Enable Qt feature
 
 .PARAMETER ForceQTVersion
 Force a specific Qt version
+
+.PARAMETER StopAfterDebugBuild
+Stop the script after building the debug version, useful for debugging
 
 .PARAMETER BuildDocumentation
 Build documentation using Doxygen
@@ -82,6 +88,9 @@ Do not setup VisualStudio environment using the vcvars script
 
 .PARAMETER DoNotUseNinja
 Do not use Ninja for build
+
+.PARAMETER DoNotSkipLFS
+Do not skip git-lfs smudge step, but warning: it might trigger errors in vcpkg dependencies if not skipped
 
 .PARAMETER ForceStaticLib
 Create library as static instead of the default linking mode of your system
@@ -168,9 +177,11 @@ param (
   [switch]$EnableOPENCV_CUDA = $false,
   [switch]$EnableOPENMP = $false,
   [switch]$EnableVTK = $false,
+  [switch]$EnablePCL = $false,
   [switch]$EnableTEST = $false,
   [switch]$EnableQT = $false,
   [Int32]$ForceQTVersion = 0,
+  [switch]$StopAfterDebugBuild = $false,
   [switch]$BuildDocumentation = $false,
   [switch]$UseVCPKG = $false,
   [switch]$ForceLocalVCPKG = $false,
@@ -182,6 +193,7 @@ param (
   [switch]$DoNotDeleteBuildFolder = $false,
   [switch]$DoNotSetupVS = $false,
   [switch]$DoNotUseNinja = $false,
+  [switch]$DoNotSkipLFS = $false,
   [switch]$ForceStaticLib = $false,
   [switch]$ForceVCPKGCacheRemoval = $false,
   [switch]$ForceVCPKGBuildtreesRemoval = $false,
@@ -201,7 +213,7 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$build_ps1_version = "4.1.0"
+$build_ps1_version = "4.1.3"
 $script_name = $MyInvocation.MyCommand.Name
 $utils_psm1_avail = $false
 
@@ -317,6 +329,11 @@ if (($IsLinux -or $IsMacOS) -and ($ForceGCCVersion -gt 0)) {
   Write-Host "Manually setting CC and CXX variables to gcc version $ForceGCCVersion"
   $env:CC = "gcc-$ForceGCCVersion"
   $env:CXX = "g++-$ForceGCCVersion"
+}
+
+if (-Not $DoNotSkipLFS) {
+  $env:GIT_LFS_SKIP_SMUDGE=1
+  $env:VCPKG_KEEP_ENV_VARS="GIT_LFS_SKIP_SMUDGE"
 }
 
 $vcpkg_triplet_set_by_this_script = $false
@@ -489,6 +506,16 @@ if ($DoNotUseNinja) {
 }
 else {
   Write-Host "Ninja is enabled, please pass -DoNotUseNinja to the script to disable"
+}
+
+if ($StopAfterDebugBuild -and -Not $BuildDebug) {
+  Write-Host "Warning: -StopAfterDebugBuild was specified but -BuildDebug is not enabled. Ignoring StopAfterDebugBuild." -ForegroundColor Yellow
+  $StopAfterDebugBuild = $false
+}
+
+if ($BuildInstaller -and $StopAfterDebugBuild) {
+  Write-Host "Warning: -StopAfterDebugBuild cannot be used together with -BuildInstaller (release build required for packaging). Disabling StopAfterDebugBuild." -ForegroundColor Yellow
+  $StopAfterDebugBuild = $false
 }
 
 Push-Location $PSCustomScriptRoot
@@ -872,6 +899,10 @@ if ($EnableVTK) {
   $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_VTK=ON"
 }
 
+if ($EnablePCL) {
+  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_PCL=ON"
+}
+
 if ($EnableTEST) {
   $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_TEST=ON"
 }
@@ -948,39 +979,41 @@ if ($BuildDebug) {
     Copy-Item $_ $DebugInstallPrefix/bin
   }
 }
-$release_build_folder = "$PSCustomScriptRoot/build_release"
-if (-Not $DoNotDeleteBuildFolder) {
-  Write-Host "Removing folder $release_build_folder" -ForegroundColor Yellow
-  Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $release_build_folder
-}
+if (-Not $StopAfterDebugBuild) {
+  $release_build_folder = "$PSCustomScriptRoot/build_release"
+  if (-Not $DoNotDeleteBuildFolder) {
+    Write-Host "Removing folder $release_build_folder" -ForegroundColor Yellow
+    Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $release_build_folder
+  }
 
-if (-Not (Test-Path $ReleaseInstallPrefix)) {
-  New-Item -Path $ReleaseInstallPrefix -ItemType directory -Force | Out-Null
-}
-New-Item -Path $release_build_folder -ItemType directory -Force | Out-Null
-Set-Location $release_build_folder
-$cmake_args = "-G `"$generator`" ${ReleaseBuildSetup} ${AdditionalBuildSetup} -S .."
-Write-Host "Configuring release CMake project" -ForegroundColor Green
-Write-Host "CMake args: $cmake_args"
-$proc = Start-Process -NoNewWindow -PassThru -FilePath $CMAKE_EXE -ArgumentList $cmake_args
-$handle = $proc.Handle
-$proc.WaitForExit()
-$exitCode = $proc.ExitCode
-if (-Not ($exitCode -eq 0)) {
-  MyThrow("Config failed! Exited with error code $exitCode.")
-}
-Write-Host "Building release CMake project" -ForegroundColor Green
-if ($BuildInstaller) {
-  $proc = Start-Process -NoNewWindow -PassThru -FilePath $CMAKE_EXE -ArgumentList "--build . ${releaseConfig} --parallel ${NumberOfBuildWorkers}"
-}
-else {
-  $proc = Start-Process -NoNewWindow -PassThru -FilePath $CMAKE_EXE -ArgumentList "--build . ${releaseConfig} --parallel ${NumberOfBuildWorkers} --target install"
-}
-$handle = $proc.Handle
-$proc.WaitForExit()
-$exitCode = $proc.ExitCode
-if (-Not ($exitCode -eq 0)) {
-  MyThrow("Build failed! Exited with error code $exitCode.")
+  if (-Not (Test-Path $ReleaseInstallPrefix)) {
+    New-Item -Path $ReleaseInstallPrefix -ItemType directory -Force | Out-Null
+  }
+  New-Item -Path $release_build_folder -ItemType directory -Force | Out-Null
+  Set-Location $release_build_folder
+  $cmake_args = "-G `"$generator`" ${ReleaseBuildSetup} ${AdditionalBuildSetup} -S .."
+  Write-Host "Configuring release CMake project" -ForegroundColor Green
+  Write-Host "CMake args: $cmake_args"
+  $proc = Start-Process -NoNewWindow -PassThru -FilePath $CMAKE_EXE -ArgumentList $cmake_args
+  $handle = $proc.Handle
+  $proc.WaitForExit()
+  $exitCode = $proc.ExitCode
+  if (-Not ($exitCode -eq 0)) {
+    MyThrow("Config failed! Exited with error code $exitCode.")
+  }
+  Write-Host "Building release CMake project" -ForegroundColor Green
+  if ($BuildInstaller) {
+    $proc = Start-Process -NoNewWindow -PassThru -FilePath $CMAKE_EXE -ArgumentList "--build . ${releaseConfig} --parallel ${NumberOfBuildWorkers}"
+  }
+  else {
+    $proc = Start-Process -NoNewWindow -PassThru -FilePath $CMAKE_EXE -ArgumentList "--build . ${releaseConfig} --parallel ${NumberOfBuildWorkers} --target install"
+  }
+  $handle = $proc.Handle
+  $proc.WaitForExit()
+  $exitCode = $proc.ExitCode
+  if (-Not ($exitCode -eq 0)) {
+    MyThrow("Build failed! Exited with error code $exitCode.")
+  }
 }
 
 if ($IsWindows -and $EnableQT -and $UseVCPKG -and -Not $DisableDLLcopy) {
@@ -993,6 +1026,17 @@ if ($IsWindows -and $EnableQT -and $UseVCPKG -and -Not $DisableDLLcopy) {
 }
 
 if ($BuildInstaller) {
+  $expectedReleaseFolder = Join-Path $PSCustomScriptRoot 'build_release'
+  $current = Get-Location
+  if (-Not ($current.ProviderPath -ieq $expectedReleaseFolder)) {
+    if (Test-Path $expectedReleaseFolder) {
+      Set-Location $expectedReleaseFolder
+      Write-Host "Switched directory to $expectedReleaseFolder for packaging" -ForegroundColor Yellow
+    }
+  }
+  if (-Not (Test-Path (Join-Path (Get-Location) 'CMakeCache.txt'))) {
+    MyThrow("Cannot create installer: CMakeCache.txt not found in $(Get-Location). Configure the release build (without -StopAfterDebugBuild) before using -BuildInstaller.")
+  }
   Write-Host "Building package with CPack" -ForegroundColor Green
   $proc = Start-Process -NoNewWindow -PassThru -FilePath $CMAKE_EXE -ArgumentList "--build . --target package"
   $handle = $proc.Handle
@@ -1033,6 +1077,11 @@ if ($vcpkg_triplet_set_by_this_script) {
 }
 if ($vcpkg_host_triplet_set_by_this_script) {
   $env:VCPKG_DEFAULT_HOST_TRIPLET = $null
+}
+
+if (-Not $DoNotSkipLFS) {
+  $env:GIT_LFS_SKIP_SMUDGE=$null
+  $env:VCPKG_KEEP_ENV_VARS=$null
 }
 
 if ($vcpkg_branch_set_by_this_script) {

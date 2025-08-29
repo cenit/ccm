@@ -6,7 +6,7 @@
         build-doc
         Created By: Stefano Sinigardi
         Created Date: February 18, 2019
-        Last Modified Date: August 22, 2024
+        Last Modified Date: August 29, 2025
 
 .DESCRIPTION
 Build documentation with pandoc and latex
@@ -103,7 +103,7 @@ param (
   [switch]$OverlayOnTop = $false,
   [string]$OverlayClass = "",
   [string]$OverlayTitle = "",
-  [string]$OverlayAuthor = "",
+  [string]$OverlayAuthor = "Stefano Sinigardi",
   [switch]$DisablePdftk = $false,
   [switch]$DisableRSVGConvert = $false,
   [switch]$DisableMermaidFilter = $false,
@@ -119,7 +119,7 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$build_doc_ps1_version = "3.1.0"
+$build_doc_ps1_version = "3.1.1"
 $script_name = $MyInvocation.MyCommand.Name
 if (Test-Path $PSScriptRoot/utils.psm1) {
   Import-Module -Name $PSScriptRoot/utils.psm1 -Force
@@ -390,9 +390,6 @@ if ($CreateOverlay) {
     $OverlayTitle = ${env:computername}
     $OverlayTitle += " - "
     $OverlayTitle += Get-Date
-  }
-  if ($OverlayAuthor -eq "") {
-    $OverlayAuthor = "Stefano Sinigardi"
   }
   if ($OverlayClass -eq "") {
     $OverlayClass = "hfnotes"

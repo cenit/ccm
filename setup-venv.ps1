@@ -160,7 +160,7 @@ if ($ActivateOnly) {
 }
 
 if (-Not (Test-Path $venv_dir)) {
-  $proc = Start-Process -NoNewWindow -PassThru -FilePath $PYTHON_EXE -ArgumentList " -m venv $venv_dir"
+  $proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_EXE" -ArgumentList " -m venv `"$venv_dir"
   $handle = $proc.Handle
   $proc.WaitForExit()
   $exitCode = $proc.ExitCode
@@ -201,7 +201,7 @@ else {
 
 if (-Not $IsMacOS) {
   Write-Host "Ensuring pip is available"
-  $proc = Start-Process -NoNewWindow -PassThru -FilePath $PYTHON_VENV_EXE -ArgumentList " -m ensurepip --upgrade"
+  $proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_VENV_EXE" -ArgumentList " -m ensurepip --upgrade"
   $handle = $proc.Handle
   $proc.WaitForExit()
   $exitCode = $proc.ExitCode
@@ -210,13 +210,16 @@ if (-Not $IsMacOS) {
   }
 }
 
-$base_packages = " pip setuptools wheel pyinstaller pytest pytest-cov test-utils pip-system-certs"
+$base_packages = " pip setuptools wheel pyinstaller pytest pytest-cov test-utils "
+if ($IsWindowsPowerShell -Or $IsWindows) {
+  $base_packages += " pip-system-certs "
+}
 if ($azure_ci) {
   $base_packages += " pytest-azurepipelines"
 }
 
 Write-Host "Updating base packages"
-$proc = Start-Process -NoNewWindow -PassThru -FilePath $PYTHON_VENV_EXE -ArgumentList " -m pip install --upgrade $base_packages"
+$proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_VENV_EXE" -ArgumentList " -m pip install --upgrade $base_packages"
 $handle = $proc.Handle
 $proc.WaitForExit()
 $exitCode = $proc.ExitCode
