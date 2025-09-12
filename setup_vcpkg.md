@@ -1,14 +1,14 @@
-# VCPKG Guide
+# vcpkg Guide
 
-This document will guide you to install and setup VCPKG
+This document will guide you to install and setup vcpkg
 
 ## Installation
 
-### VCPKG
+### vcpkg
 
 Follow the instructions on the `setup_eng.md` file to prepare basic tools for your system, preliminary to installing VCPKG.
 
-Open PowerShell and run these commands to install VCPKG.:
+Open PowerShell and run these commands to install vcpkg:
 
 ```pwsh
 cd $env:WORKSPACE
@@ -27,18 +27,44 @@ and execute the following command
 .\bootstrap-vcpkg.bat -disableMetrics
 ```
 
-### Nuget
+### NuGet
 
-Now you have to configure NUGET
+Now you have to configure NuGet
 
 ```pwsh
 .\vcpkg fetch nuget
 cd downloads\tools\nuget-[...]
+.\nuget | select -first 2
 ```
+
+If the NuGet version is > 6.12 proceed with option A, otherwise with option B
+
+#### Option A
 
 ```pwsh
 .\nuget.exe sources add -Name vcpkgbinarycache -Source http://93.49.111.10:5555/v3/index.json -AllowInsecureConnections
 ```
+
+#### Option B
+
+```pwsh
+.\nuget.exe sources add -Name vcpkgbinarycache -Source http://93.49.111.10:5555/v3/index.json
+notepad $env:AppData\NuGet\NuGet.Config
+```
+
+Dentro al file `NuGet.Config` modificare la riga
+
+```pwsh
+    <add key="vcpkgbinarycache" value="http://93.49.111.10:5555/v3/index.json" />
+```
+
+aggiungendo il tag `allowInsecureConnections="true"` in questo modo:
+
+```pwsh
+    <add key="vcpkgbinarycache" value="http://93.49.111.10:5555/v3/index.json" allowInsecureConnections="true" />
+```
+
+#### Aggiunta API key per push su repository
 
 ```pwsh
 .\nuget.exe setapikey REDACTED -Source http://93.49.111.10:5555/v3/index.json
