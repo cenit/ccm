@@ -9,7 +9,8 @@
         Last Modified Date: November 4, 2024
 
 .DESCRIPTION
-Setup a python virtual environment with venv
+Setup a python virtual environment with venv.
+Supports both requirements.txt and pyproject.toml based projects.
 
 .PARAMETER DisableInteractive
 Disable script interactivity (useful for CI runs)
@@ -22,6 +23,9 @@ Activate the virtual environment only
 
 .PARAMETER CPUOnlyRequirements
 Use requirements-cpu.txt instead of requirements.txt
+
+.PARAMETER DevRequirements
+Use requirements-dev.txt instead of requirements.txt
 
 .PARAMETER Deactivate
 Deactivate the virtual environment
@@ -60,6 +64,7 @@ param (
   [switch]$DoNotUpdateTOOL = $false,
   [switch]$ActivateOnly = $false,
   [switch]$CPUOnlyRequirements = $false,
+  [switch]$DevRequirements = $false,
   [switch]$Deactivate = $false
 )
 
@@ -227,15 +232,30 @@ if (-Not ($exitCode -eq 0)) {
   MyThrow("Unable to install pip! Exited with error code $exitCode.")
 }
 
+$pyproject_path = "$PSCustomScriptRoot/pyproject.toml"
 if($CPUOnlyRequirements) {
   $requirements_path = "$PSCustomScriptRoot/requirements-cpu.txt"
+}
+elseif($DevRequirements) {
+  $requirements_path = "$PSCustomScriptRoot/requirements-dev.txt"
 }
 else {
   $requirements_path = "$PSCustomScriptRoot/requirements.txt"
 }
+
 if (Test-Path $requirements_path) {
-  Write-Host "Installing requirements"
+  Write-Host "Installing requirements from $requirements_path"
   Install-RequirementsWithRetry -PythonPath $PYTHON_VENV_EXE -FilePath $requirements_path -MaxRetries 20 -DelaySeconds 3
+}
+elseif (Test-Path $pyproject_path) {
+  Write-Host "Installing project from pyproject.toml"
+  $proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_VENV_EXE" -ArgumentList " -m pip install -e `"$PSCustomScriptRoot`""
+  $handle = $proc.Handle
+  $proc.WaitForExit()
+  $exitCode = $proc.ExitCode
+  if (-Not ($exitCode -eq 0)) {
+    MyThrow("Unable to install project from pyproject.toml! Exited with error code $exitCode.")
+  }
 }
 
 $ErrorActionPreference = "SilentlyContinue"
