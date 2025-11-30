@@ -70,7 +70,7 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$setup_venv_ps1_version = "1.3.0"
+$setup_venv_ps1_version = "1.4.0"
 $script_name = $MyInvocation.MyCommand.Name
 if (Test-Path $PSScriptRoot/utils.psm1) {
   Import-Module -Name $PSScriptRoot/utils.psm1 -Force
