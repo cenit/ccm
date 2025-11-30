@@ -216,11 +216,14 @@ if (-Not $IsMacOS) {
 }
 
 $base_packages = " pip setuptools wheel pyinstaller pytest pytest-cov test-utils "
-if ($IsWindowsPowerShell -Or $IsWindows) {
-  $base_packages += " pip-system-certs "
-}
 if ($azure_ci) {
   $base_packages += " pytest-azurepipelines"
+}
+
+# Note: pip-system-certs is installed later to avoid interference with pip build isolation
+$post_install_packages = ""
+if ($IsWindowsPowerShell -Or $IsWindows) {
+  $post_install_packages = " pip-system-certs "
 }
 
 Write-Host "Updating base packages"
@@ -258,6 +261,15 @@ if (Test-Path $requirements_path) {
   Install-RequirementsWithRetry -PythonPath $PYTHON_VENV_EXE -FilePath $requirements_path -MaxRetries 20 -DelaySeconds 3
 }
 elseif (Test-Path $pyproject_path) {
+  # Temporarily uninstall pip-system-certs if present (it interferes with pip build isolation)
+  $pip_system_certs_installed = & "$PYTHON_VENV_EXE" -m pip show pip-system-certs 2>$null
+  if ($pip_system_certs_installed) {
+    Write-Host "Temporarily uninstalling pip-system-certs to avoid build isolation issues"
+    $proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_VENV_EXE" -ArgumentList " -m pip uninstall -y pip-system-certs"
+    $handle = $proc.Handle
+    $proc.WaitForExit()
+  }
+
   Write-Host "Installing project from pyproject.toml"
   $proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_VENV_EXE" -ArgumentList " -m pip install -e `"$PSCustomScriptRoot`""
   $handle = $proc.Handle
@@ -266,6 +278,15 @@ elseif (Test-Path $pyproject_path) {
   if (-Not ($exitCode -eq 0)) {
     MyThrow("Unable to install project from pyproject.toml! Exited with error code $exitCode.")
   }
+}
+
+# Install packages that can interfere with pip build isolation (e.g., pip-system-certs)
+# These are installed after the main project to avoid build issues
+if ($post_install_packages -ne "") {
+  Write-Host "Installing post-install packages"
+  $proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_VENV_EXE" -ArgumentList " -m pip install $post_install_packages"
+  $handle = $proc.Handle
+  $proc.WaitForExit()
 }
 
 $ErrorActionPreference = "SilentlyContinue"
