@@ -232,6 +232,16 @@ if (-Not ($exitCode -eq 0)) {
   MyThrow("Unable to install pip! Exited with error code $exitCode.")
 }
 
+# Remove stale _distutils_hack artifacts if present (can cause conflicts after setuptools upgrade)
+# These are legacy artifacts from older setuptools that can interfere with pip build isolation
+$distutils_hack_path = "$venv_dir/Lib/site-packages/_distutils_hack"
+$distutils_pth_path = "$venv_dir/Lib/site-packages/distutils-precedence.pth"
+if ((Test-Path $distutils_hack_path) -Or (Test-Path $distutils_pth_path)) {
+  Write-Host "Removing stale _distutils_hack artifacts to prevent build conflicts"
+  Remove-Item -Recurse -Force $distutils_hack_path -ErrorAction SilentlyContinue
+  Remove-Item -Force $distutils_pth_path -ErrorAction SilentlyContinue
+}
+
 $pyproject_path = "$PSCustomScriptRoot/pyproject.toml"
 if($CPUOnlyRequirements) {
   $requirements_path = "$PSCustomScriptRoot/requirements-cpu.txt"
