@@ -30,6 +30,9 @@ Use requirements-dev.txt instead of requirements.txt
 .PARAMETER Deactivate
 Deactivate the virtual environment
 
+.PARAMETER AllExtras
+Install all optional dependencies (.[all]) for pyproject.toml projects
+
 .EXAMPLE
 .\setup-venv -DisableInteractive
 
@@ -65,7 +68,8 @@ param (
   [switch]$ActivateOnly = $false,
   [switch]$CPUOnlyRequirements = $false,
   [switch]$DevRequirements = $false,
-  [switch]$Deactivate = $false
+  [switch]$Deactivate = $false,
+  [switch]$AllExtras = $false
 )
 
 $global:DisableInteractive = $DisableInteractive
@@ -270,8 +274,14 @@ elseif (Test-Path $pyproject_path) {
     $proc.WaitForExit()
   }
 
-  Write-Host "Installing project from pyproject.toml"
-  $proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_VENV_EXE" -ArgumentList " -m pip install -e `"$PSCustomScriptRoot`""
+  if ($AllExtras) {
+    Write-Host "Installing project from pyproject.toml with all extras"
+    $proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_VENV_EXE" -ArgumentList " -m pip install -e `"$PSCustomScriptRoot[all]`""
+  }
+  else {
+    Write-Host "Installing project from pyproject.toml"
+    $proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_VENV_EXE" -ArgumentList " -m pip install -e `"$PSCustomScriptRoot`""
+  }
   $handle = $proc.Handle
   $proc.WaitForExit()
   $exitCode = $proc.ExitCode
