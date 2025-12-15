@@ -292,7 +292,6 @@ function setupVisualStudio([bool]$required = $true, [bool]$enable_clang = $false
 }
 
 function setupPostgres([bool]$required = $true) {
-  # Helper: finalize — set env vars and PATH, return bin dir
   function _Set-PostgresBin([string]$binDir) {
     if (-not $binDir) { return $null }
 
@@ -703,6 +702,16 @@ Function UpdateRepo {
   }
 }
 
+
+$cuda_version_full = "12.6.2"
+$cuda_version_short = "12.6"
+$cuda_version_full_dashed = $cuda_version_full.replace('.', '-')
+$cuda_version_short_dashed = $cuda_version_short.replace('.', '-')
+
+Export-ModuleMember -Variable cuda_version_full
+Export-ModuleMember -Variable cuda_version_short
+Export-ModuleMember -Variable cuda_version_full_dashed
+Export-ModuleMember -Variable cuda_version_short_dashed
 Export-ModuleMember -Variable utils_psm1_version
 Export-ModuleMember -Variable IsWindowsPowerShell
 Export-ModuleMember -Variable IsInGitSubmodule
