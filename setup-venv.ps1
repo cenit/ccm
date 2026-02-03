@@ -6,7 +6,7 @@
         setup-venv
         Created By: Stefano Sinigardi
         Created Date: July 15, 2024
-        Last Modified Date: November 4, 2024
+        Last Modified Date: December 4, 2025
 
 .DESCRIPTION
 Setup a python virtual environment with venv.
@@ -74,7 +74,7 @@ param (
 
 $global:DisableInteractive = $DisableInteractive
 
-$setup_venv_ps1_version = "1.4.0"
+$setup_venv_ps1_version = "2.1.0"
 $script_name = $MyInvocation.MyCommand.Name
 if (Test-Path $PSScriptRoot/utils.psm1) {
   Import-Module -Name $PSScriptRoot/utils.psm1 -Force
@@ -287,6 +287,22 @@ elseif (Test-Path $pyproject_path) {
   $exitCode = $proc.ExitCode
   if (-Not ($exitCode -eq 0)) {
     MyThrow("Unable to install project from pyproject.toml! Exited with error code $exitCode.")
+  }
+}
+
+# Detect if parent shell is bash/zsh (script was called from a non-PowerShell shell)
+$parentProcess = Get-Process -Id $PID | Select-Object -ExpandProperty Parent -ErrorAction SilentlyContinue
+if ($parentProcess) {
+  $parentName = $parentProcess.ProcessName.ToLower()
+  if ($parentName -match "bash|zsh|sh|fish") {
+    Write-Host ""
+    Write-Host "======================================================================" -ForegroundColor Yellow
+    Write-Host "NOTE: You ran this script from $parentName." -ForegroundColor Yellow
+    Write-Host "The virtualenv was created but NOT activated in your shell." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "To activate it, run:" -ForegroundColor Green
+    Write-Host "  source ./.venv/bin/activate" -ForegroundColor Cyan
+    Write-Host "======================================================================" -ForegroundColor Yellow
   }
 }
 

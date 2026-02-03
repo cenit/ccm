@@ -39,7 +39,7 @@ Set-Alias ll Get-ChildItem
 $Host.UI.RawUI.WindowTitle = "$pwd"
 $OHMYPOSH_EXE = Get-Command "oh-my-posh" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
 if ($OHMYPOSH_EXE) {
-  &$OHMYPOSH_EXE init pwsh --config "$env:POSH_THEMES_PATH/agnoster.minimal.omp.json" | Invoke-Expression
+  &$OHMYPOSH_EXE init pwsh --config 'agnoster.minimal' | Invoke-Expression
 }
 
 if (-Not $IsWindowsPowerShell -and $IsWindows) {

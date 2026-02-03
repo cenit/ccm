@@ -2,14 +2,19 @@
 
 A comprehensive collection of build automation, continuous integration and development environment setup tools. This repository provides cross-platform build scripts, CMake modules and deployment automation for various development environments.
 
+## Documentation
+
+- **[`setup_eng.md`](setup_eng.md)** - Cross-platform environment setup guide (Windows/WSL2/Ubuntu/macOS)
+- **[`setup_vcpkg.md`](setup_vcpkg.md)** - vcpkg package manager setup and NuGet binary caching
+
 ## Build Automation Scripts
 
 ### Core Build Scripts
 
-- **`build.ps1`** - Main CMake build automation script with extensive feature toggles (CUDA, OpenCV, OpenMP, VTK, etc.)
-- **`build-doc.ps1`** - Documentation generation with PDF overlay support
-- **`build-ort.ps1`** - OSS Review Toolkit build script automation
-- **`build-tc.ps1`** - TwinCAT specific build processes
+- **`build.ps1`** - Main CMake build automation script with extensive feature toggles (CUDA, CUDNN, OpenCV, OpenMP, VTK, PCL, Qt, testing). Handles vcpkg integration, compiler setup (Visual Studio/Clang), Ninja build system, and installer creation
+- **`build-doc.ps1`** - Documentation generation using Pandoc and LaTeX with PDF overlay support and mermaid diagram conversion
+- **`build-ort.ps1`** - OSS Review Toolkit report generation for license assessment with Licencpp analysis and vcpkg integration
+- **`build-tc.ps1`** - TwinCAT specific build processes automation
 
 ### Clean-up Scripts
 
@@ -20,33 +25,35 @@ A comprehensive collection of build automation, continuous integration and devel
 
 ### Cross-Platform Setup
 
-- **`setup_eng.md`** - Comprehensive environment setup guide (Windows/WSL/Ubuntu/macOS)
-- **`setup_vcpkg.md`** - vcpkg package manager setup instructions
-- **`setup_ros.sh`** - ROS (Robot Operating System) environment setup
-- **`setup-venv.ps1`** - Python virtual environment automation
+- **`setup_ros.sh`** - ROS Foxy environment setup for Ubuntu 20.04 with Orocos KDL (requires root privileges)
+- **`setup-venv.ps1`** - Python virtual environment automation supporting requirements.txt and pyproject.toml with retry logic for network resilience
 
 ### Profile Scripts
 
-- **`Microsoft.PowerShell_profile.ps1`** - PowerShell profile customization
-- **`Microsoft.VSCode_profile.ps1`** - VS Code PowerShell profile
+- **`Microsoft.PowerShell_profile.ps1`** - PowerShell profile customization with terminal setup, aliases, and optional oh-my-posh styling
+- **`Microsoft.VSCode_profile.ps1`** - VS Code PowerShell profile customization
 
 ## Deployment & DevOps
 
 ### Deployment Scripts
 
-- **`deploy-templates.ps1`** - Project template deployment
+- **`deploy-templates.ps1`** - Project template deployment automation
 
 ### Security & Network
 
-- **`open-fw-exe.ps1`** / **`close-fw-rule.ps1`** - Windows Firewall management
-- **`enable-administrative-shares.ps1`** / **`disable-administrative-shares.ps1`** - Windows administrative shares toggle
-- **`enable-iis.ps1`** / **`disable-iis.ps1`** - IIS service management
+- **`open-fw-exe.ps1`** / **`close-fw-rule.ps1`** - Windows Firewall management for executables (requires Administrator)
+- **`enable-administrative-shares.ps1`** / **`disable-administrative-shares.ps1`** - Windows administrative shares (C$, D$, etc.) toggle
+- **`enable-iis.ps1`** / **`disable-iis.ps1`** - IIS service management with optional directory browsing configuration (requires Administrator)
 
 ## Specialized Industrial Software Integration
 
-### Machine Vision & Imaging
+### Machine Vision & Industrial Automation
 
-- **`minting-labview.ps1`** - LabVIEW environment setup
+- **`minting-labview.ps1`** - LabVIEW environment setup and uninstall management for multiple versions (IDE and Runtime) with NI Package Manager integration
+
+### Testing
+
+- **`verify-test-log.ps1`** - Test log verification utility
 
 ## CMake Modules & Functions
 
@@ -125,14 +132,17 @@ A comprehensive collection of build automation, continuous integration and devel
 
 ### Core Utilities
 
-- **`utils.psm1`** - PowerShell utility module with system detection, Git operations, and environment management
-- **`ort-config.yml`** - OSS Review Toolkit configuration
+- **`utils.psm1`** - Core PowerShell utility module providing:
+  - System detection (Windows PowerShell vs Core, 32/64-bit architecture)
+  - Visual Studio discovery and environment setup
+  - PostgreSQL installation detection and setup
+  - Python virtual environment activation
+  - Pip installation with retry logic (handles proxy throttling)
+  - Utility functions for downloading tools (Ninja, Aria2, licencpp, 7-Zip)
+  - Line ending conversion (dos2unix/unix2dos)
+  - Repository management and git submodule operations
 
-## Prerequisites
+### Configuration Files
 
-Refer to `setup_eng.md` for detailed environment setup instructions covering:
+- **`ort-config.yml`** - OSS Review Toolkit configuration for license assessment
 
-- Windows 10/11 with WSL2
-- Ubuntu/Debian Linux distributions  
-- macOS development environments
-- Required toolchains and dependencies

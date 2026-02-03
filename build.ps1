@@ -6,7 +6,7 @@
         build
         Created By: Stefano Sinigardi
         Created Date: February 18, 2019
-        Last Modified Date: August 13, 2025
+        Last Modified Date: February 3, 2026
 
 .DESCRIPTION
 Build tool using CMake, trying to properly setup the environment around compiler
@@ -270,6 +270,7 @@ if (-Not $BuildInstaller) {
   $DebugBuildSetup = $DebugBuildSetup + " -DCMAKE_INSTALL_PREFIX=$DebugInstallPrefix "
   $ReleaseBuildSetup = $ReleaseBuildSetup + " -DCMAKE_INSTALL_PREFIX=$ReleaseInstallPrefix "
 }
+
 Start-Transcript -Path $BuildLogPath
 
 Write-Host "Build script version ${build_ps1_version}, utils module version ${utils_psm1_version}"
@@ -1019,9 +1020,15 @@ if (-Not $StopAfterDebugBuild) {
 if ($IsWindows -and $EnableQT -and $UseVCPKG -and -Not $DisableDLLcopy) {
   if($BuildDebug) {
     Write-Host "Adding jpeg dlls to debug folder to circumvent winqtdeploy bug"
+    if (-Not (Test-Path "$DebugInstallPrefix/bin")) {
+      New-Item -Path "$DebugInstallPrefix/bin" -ItemType directory -Force | Out-Null
+    }
     Copy-Item -Path "vcpkg_installed/$env:VCPKG_DEFAULT_TRIPLET/debug/bin/jpeg*.dll" -Destination "$DebugInstallPrefix/bin" -Recurse
   }
   Write-Host "Adding jpeg dlls to release folder to circumvent winqtdeploy bug"
+  if (-Not (Test-Path "$ReleaseInstallPrefix/bin")) {
+    New-Item -Path "$ReleaseInstallPrefix/bin" -ItemType directory -Force | Out-Null
+  }
   Copy-Item -Path "vcpkg_installed/$env:VCPKG_DEFAULT_TRIPLET/bin/jpeg*.dll" -Destination "$ReleaseInstallPrefix/bin" -Recurse
 }
 

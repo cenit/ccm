@@ -276,7 +276,9 @@ function setupVisualStudio([bool]$required = $true, [bool]$enable_clang = $false
     else {
       Write-Host "Found VS in ${vsfound}"
       Push-Location "${vsfound}/Common7/Tools"
-      cmd.exe /c "VsDevCmd.bat -arch=${vsArchitecture} & set" |
+      # Note: Use ".\" prefix because cmd.exe spawned from certain environments
+      # (e.g., Git Bash, MSYS2) doesn't search current directory for batch files
+      cmd.exe /c ".\VsDevCmd.bat -arch=${vsArchitecture} & set" |
       ForEach-Object {
         if ($_ -match "=") {
           $v = $_.split("="); Set-Item -force -path "ENV:\$($v[0])" -value "$($v[1])"
@@ -292,6 +294,7 @@ function setupVisualStudio([bool]$required = $true, [bool]$enable_clang = $false
 }
 
 function setupPostgres([bool]$required = $true) {
+  # Helper: finalize - set env vars and PATH, return bin dir
   function _Set-PostgresBin([string]$binDir) {
     if (-not $binDir) { return $null }
 
