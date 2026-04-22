@@ -37,12 +37,17 @@ Set-PSReadlineKeyHandler -Key ctrl+d -Function ViExit
 Set-Alias ll Get-ChildItem
 
 $Host.UI.RawUI.WindowTitle = "$pwd"
-$OHMYPOSH_EXE = Get-Command "oh-my-posh" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
-if ($OHMYPOSH_EXE) {
-  &$OHMYPOSH_EXE init pwsh --config 'agnoster.minimal' | Invoke-Expression
-}
 
-if (-Not $IsWindowsPowerShell -and $IsWindows) {
-  #f45873b3-b655-43a6-b217-97c00aa0db58 PowerToys CommandNotFound module
-  Import-Module -Name Microsoft.WinGet.CommandNotFound
+if ($env:WT_SESSION -and -not $env:_OMP_LOADED) {
+  $env:_OMP_LOADED = "1"
+
+  $OHMYPOSH_EXE = Get-Command "oh-my-posh" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
+  if ($OHMYPOSH_EXE) {
+    &$OHMYPOSH_EXE init pwsh --config 'agnoster.minimal' | Invoke-Expression
+  }
+
+  if (-Not $IsWindowsPowerShell -and $IsWindows) {
+    #f45873b3-b655-43a6-b217-97c00aa0db58 PowerToys CommandNotFound module
+    Import-Module -Name Microsoft.WinGet.CommandNotFound
+  }
 }

@@ -6,10 +6,10 @@
         setup-venv
         Created By: Stefano Sinigardi
         Created Date: July 15, 2024
-        Last Modified Date: December 4, 2025
+        Last Modified Date: March 10, 2026
 
 .DESCRIPTION
-Setup a python virtual environment with venv.
+Setup a python virtual environment using uv (https://docs.astral.sh/uv/).
 Supports both requirements.txt and pyproject.toml based projects.
 
 .PARAMETER DisableInteractive
@@ -32,6 +32,9 @@ Deactivate the virtual environment
 
 .PARAMETER AllExtras
 Install all optional dependencies (.[all]) for pyproject.toml projects
+
+.PARAMETER DevExtras
+Install development dependencies (.[dev]) for pyproject.toml projects
 
 .EXAMPLE
 .\setup-venv -DisableInteractive
@@ -69,35 +72,36 @@ param (
   [switch]$CPUOnlyRequirements = $false,
   [switch]$DevRequirements = $false,
   [switch]$Deactivate = $false,
-  [switch]$AllExtras = $false
+  [switch]$AllExtras = $false,
+  [switch]$DevExtras = $false
 )
 
 $global:DisableInteractive = $DisableInteractive
 
-$setup_venv_ps1_version = "2.1.0"
+$setup_venv_ps1_version = "3.1.0"
 $script_name = $MyInvocation.MyCommand.Name
 if (Test-Path $PSScriptRoot/utils.psm1) {
-  Import-Module -Name $PSScriptRoot/utils.psm1 -Force
+  Import-Module -Name $PSScriptRoot/utils.psm1 -Force -DisableNameChecking
   $utils_psm1_avail = $true
   $IsInGitSubmodule = $true
 }
 elseif (Test-Path $PSScriptRoot/cmake/utils.psm1) {
-  Import-Module -Name $PSScriptRoot/cmake/utils.psm1 -Force
+  Import-Module -Name $PSScriptRoot/cmake/utils.psm1 -Force -DisableNameChecking
   $utils_psm1_avail = $true
   $IsInGitSubmodule = $false
 }
 elseif (Test-Path $PSScriptRoot/ci/utils.psm1) {
-  Import-Module -Name $PSScriptRoot/ci/utils.psm1 -Force
+  Import-Module -Name $PSScriptRoot/ci/utils.psm1 -Force -DisableNameChecking
   $utils_psm1_avail = $true
   $IsInGitSubmodule = $false
 }
 elseif (Test-Path $PSScriptRoot/ccm/utils.psm1) {
-  Import-Module -Name $PSScriptRoot/ccm/utils.psm1 -Force
+  Import-Module -Name $PSScriptRoot/ccm/utils.psm1 -Force -DisableNameChecking
   $utils_psm1_avail = $true
   $IsInGitSubmodule = $false
 }
 elseif (Test-Path $PSScriptRoot/scripts/utils.psm1) {
-  Import-Module -Name $PSScriptRoot/scripts/utils.psm1 -Force
+  Import-Module -Name $PSScriptRoot/scripts/utils.psm1 -Force -DisableNameChecking
   $utils_psm1_avail = $true
   $IsInGitSubmodule = $false
 }
@@ -143,6 +147,14 @@ else {
   Write-Host "Using git from ${GIT_EXE}"
 }
 
+$UV_EXE = Get-Command "uv" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
+if (-Not $UV_EXE) {
+  MyThrow("Could not find uv, please install it (https://docs.astral.sh/uv/getting-started/installation/)")
+}
+else {
+  Write-Host "Using uv from ${UV_EXE}"
+}
+
 $PYTHON_EXE = Get-Command "python" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
 if (-Not $PYTHON_EXE) {
   $PYTHON_EXE = Get-Command "python3" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Definition
@@ -169,8 +181,8 @@ if ($ActivateOnly) {
 }
 
 if (-Not (Test-Path $venv_dir)) {
-  $proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_EXE" -ArgumentList " -m venv `"$venv_dir"
-  $handle = $proc.Handle
+  Write-Host "Creating virtual environment with uv"
+  $proc = Start-Process -NoNewWindow -PassThru -FilePath "$UV_EXE" -ArgumentList " venv `"$venv_dir`""
   $proc.WaitForExit()
   $exitCode = $proc.ExitCode
   if (-Not ($exitCode -eq 0)) {
@@ -208,45 +220,9 @@ else {
   $azure_ci = $false
 }
 
-if (-Not $IsMacOS) {
-  Write-Host "Ensuring pip is available"
-  $proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_VENV_EXE" -ArgumentList " -m ensurepip --upgrade"
-  $handle = $proc.Handle
-  $proc.WaitForExit()
-  $exitCode = $proc.ExitCode
-  if (-Not ($exitCode -eq 0)) {
-    MyThrow("Unable to ensure pip is available! Exited with error code $exitCode.")
-  }
-}
-
-$base_packages = " pip setuptools wheel pyinstaller pytest pytest-cov test-utils "
-if ($azure_ci) {
-  $base_packages += " pytest-azurepipelines"
-}
-
-# Note: pip-system-certs is installed later to avoid interference with pip build isolation
-$post_install_packages = ""
-if ($IsWindowsPowerShell -Or $IsWindows) {
-  $post_install_packages = " pip-system-certs "
-}
-
-Write-Host "Updating base packages"
-$proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_VENV_EXE" -ArgumentList " -m pip install --upgrade $base_packages"
-$handle = $proc.Handle
-$proc.WaitForExit()
-$exitCode = $proc.ExitCode
-if (-Not ($exitCode -eq 0)) {
-  MyThrow("Unable to install pip! Exited with error code $exitCode.")
-}
-
-# Remove stale _distutils_hack artifacts if present (can cause conflicts after setuptools upgrade)
-# These are legacy artifacts from older setuptools that can interfere with pip build isolation
-$distutils_hack_path = "$venv_dir/Lib/site-packages/_distutils_hack"
-$distutils_pth_path = "$venv_dir/Lib/site-packages/distutils-precedence.pth"
-if ((Test-Path $distutils_hack_path) -Or (Test-Path $distutils_pth_path)) {
-  Write-Host "Removing stale _distutils_hack artifacts to prevent build conflicts"
-  Remove-Item -Recurse -Force $distutils_hack_path -ErrorAction SilentlyContinue
-  Remove-Item -Force $distutils_pth_path -ErrorAction SilentlyContinue
+if (-not $env:UV_NATIVE_TLS -and -not $env:SSL_CERT_FILE -and -not $env:SSL_CERT_DIR -and ($azure_ci -or $env:HTTPS_PROXY -or $env:HTTP_PROXY -or $env:ALL_PROXY)) {
+  $env:UV_NATIVE_TLS = "true"
+  Write-Host "Enabled UV_NATIVE_TLS to use the OS trust store for corporate proxy certificates"
 }
 
 $pyproject_path = "$PSCustomScriptRoot/pyproject.toml"
@@ -260,29 +236,56 @@ else {
   $requirements_path = "$PSCustomScriptRoot/requirements.txt"
 }
 
-if (Test-Path $requirements_path) {
-  Write-Host "Installing requirements from $requirements_path"
-  Install-RequirementsWithRetry -PythonPath $PYTHON_VENV_EXE -FilePath $requirements_path -MaxRetries 20 -DelaySeconds 3
-}
-elseif (Test-Path $pyproject_path) {
-  # Temporarily uninstall pip-system-certs if present (it interferes with pip build isolation)
-  $pip_system_certs_installed = & "$PYTHON_VENV_EXE" -m pip show pip-system-certs 2>$null
-  if ($pip_system_certs_installed) {
-    Write-Host "Temporarily uninstalling pip-system-certs to avoid build isolation issues"
-    $proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_VENV_EXE" -ArgumentList " -m pip uninstall -y pip-system-certs"
-    $handle = $proc.Handle
-    $proc.WaitForExit()
+# When using pyproject.toml with extras (-DevExtras / -AllExtras), the project
+# already declares its own test dependencies — skip base packages to avoid
+# version conflicts.  For requirements.txt workflows (or bare pyproject.toml)
+# install a minimal test harness so pytest is always available.
+$skip_base_packages = (
+  (-Not (Test-Path $requirements_path)) -and
+  (Test-Path $pyproject_path) -and
+  ($DevExtras -or $AllExtras)
+)
+
+if (-Not $skip_base_packages) {
+  $base_packages = " pytest pytest-cov "
+  if ($azure_ci) {
+    $base_packages += " pytest-azurepipelines"
   }
 
+  Write-Host "Installing base packages with uv"
+  $proc = Start-Process -NoNewWindow -PassThru -FilePath "$UV_EXE" -ArgumentList " pip install $base_packages"
+  $proc.WaitForExit()
+  $exitCode = $proc.ExitCode
+  if (-Not ($exitCode -eq 0)) {
+    MyThrow("Unable to install base packages! Exited with error code $exitCode.")
+  }
+}
+else {
+  Write-Host "Skipping base packages (project extras will provide test dependencies)"
+}
+
+if (Test-Path $requirements_path) {
+  Write-Host "Installing requirements from $requirements_path"
+  $proc = Start-Process -NoNewWindow -PassThru -FilePath "$UV_EXE" -ArgumentList " pip install -r `"$requirements_path`""
+  $proc.WaitForExit()
+  $exitCode = $proc.ExitCode
+  if (-Not ($exitCode -eq 0)) {
+    MyThrow("Unable to install requirements! Exited with error code $exitCode.")
+  }
+}
+elseif (Test-Path $pyproject_path) {
   if ($AllExtras) {
     Write-Host "Installing project from pyproject.toml with all extras"
-    $proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_VENV_EXE" -ArgumentList " -m pip install -e `"$PSCustomScriptRoot[all]`""
+    $proc = Start-Process -NoNewWindow -PassThru -FilePath "$UV_EXE" -ArgumentList " pip install -e `"$PSCustomScriptRoot[all]`""
+  }
+  elseif ($DevExtras) {
+    Write-Host "Installing project from pyproject.toml with dev extras"
+    $proc = Start-Process -NoNewWindow -PassThru -FilePath "$UV_EXE" -ArgumentList " pip install -e `"$PSCustomScriptRoot[dev]`""
   }
   else {
     Write-Host "Installing project from pyproject.toml"
-    $proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_VENV_EXE" -ArgumentList " -m pip install -e `"$PSCustomScriptRoot`""
+    $proc = Start-Process -NoNewWindow -PassThru -FilePath "$UV_EXE" -ArgumentList " pip install -e `"$PSCustomScriptRoot`""
   }
-  $handle = $proc.Handle
   $proc.WaitForExit()
   $exitCode = $proc.ExitCode
   if (-Not ($exitCode -eq 0)) {
@@ -304,15 +307,6 @@ if ($parentProcess) {
     Write-Host "  source ./.venv/bin/activate" -ForegroundColor Cyan
     Write-Host "======================================================================" -ForegroundColor Yellow
   }
-}
-
-# Install packages that can interfere with pip build isolation (e.g., pip-system-certs)
-# These are installed after the main project to avoid build issues
-if ($post_install_packages -ne "") {
-  Write-Host "Installing post-install packages"
-  $proc = Start-Process -NoNewWindow -PassThru -FilePath "$PYTHON_VENV_EXE" -ArgumentList " -m pip install $post_install_packages"
-  $handle = $proc.Handle
-  $proc.WaitForExit()
 }
 
 $ErrorActionPreference = "SilentlyContinue"

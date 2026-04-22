@@ -528,7 +528,7 @@ function DownloadAria2() {
 }
 
 function DownloadLicencpp() {
-  $licencpp_version = "0.2.5"
+  $licencpp_version = "0.2.6"
   Write-Host "Downloading a portable version of licencpp v${licencpp_version}" -ForegroundColor Yellow
   if ($IsWindows -or $IsWindowsPowerShell) {
     $basename = "licencpp-Windows"
@@ -705,7 +705,6 @@ Function UpdateRepo {
   }
 }
 
-
 $cuda_version_full = "12.6.2"
 $cuda_version_short = "12.6"
 $cuda_version_full_dashed = $cuda_version_full.replace('.', '-')
@@ -715,6 +714,7 @@ Export-ModuleMember -Variable cuda_version_full
 Export-ModuleMember -Variable cuda_version_short
 Export-ModuleMember -Variable cuda_version_full_dashed
 Export-ModuleMember -Variable cuda_version_short_dashed
+
 Export-ModuleMember -Variable utils_psm1_version
 Export-ModuleMember -Variable IsWindowsPowerShell
 Export-ModuleMember -Variable IsInGitSubmodule
