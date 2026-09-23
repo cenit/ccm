@@ -36,8 +36,17 @@ Install all optional dependencies (.[all]) for pyproject.toml projects
 .PARAMETER DevExtras
 Install development dependencies (.[dev]) for pyproject.toml projects
 
+.PARAMETER PythonVersion
+Pin the Python version used to create the virtual environment (e.g. "3.11", "3.12").
+Passed through to `uv venv --python <version>`. uv will download the requested
+interpreter automatically if it is not already installed on the machine.
+When omitted, uv falls back to whichever `python` is on PATH.
+
 .EXAMPLE
 .\setup-venv -DisableInteractive
+
+.EXAMPLE
+.\setup-venv -DisableInteractive -PythonVersion 3.11
 
 #>
 
@@ -73,12 +82,13 @@ param (
   [switch]$DevRequirements = $false,
   [switch]$Deactivate = $false,
   [switch]$AllExtras = $false,
-  [switch]$DevExtras = $false
+  [switch]$DevExtras = $false,
+  [string]$PythonVersion = ""
 )
 
 $global:DisableInteractive = $DisableInteractive
 
-$setup_venv_ps1_version = "3.1.0"
+$setup_venv_ps1_version = "3.3.2"
 $script_name = $MyInvocation.MyCommand.Name
 if (Test-Path $PSScriptRoot/utils.psm1) {
   Import-Module -Name $PSScriptRoot/utils.psm1 -Force -DisableNameChecking
@@ -111,20 +121,18 @@ else {
   $IsInGitSubmodule = $false
 }
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
 if($IsInGitSubmodule) {
   $PSCustomScriptRoot = Split-Path $PSScriptRoot -Parent
 }
 else {
   $PSCustomScriptRoot = $PSScriptRoot
 }
-$SetupVenvLogPath = "$PSCustomScriptRoot/setup-venv.log"
-Start-Transcript -Path $SetupVenvLogPath
+
+$ccmLog = Initialize-CcmLogging
+trap { Stop-CcmLogging $ccmLog; break }
 
 Write-Host "Setup venv script version ${setup_venv_ps1_version}, utils module version ${utils_psm1_version}"
-Write-Host "Working directory: $PSCustomScriptRoot, log file: $SetupVenvLogPath, $script_name is in submodule: $IsInGitSubmodule"
+Write-Host "Working directory: $PSCustomScriptRoot, log file: $($ccmLog.LogPath), $script_name is in submodule: $IsInGitSubmodule"
 
 Write-Host -NoNewLine "PowerShell version:"
 $PSVersionTable.PSVersion
@@ -168,9 +176,7 @@ else {
 
 if ($Deactivate) {
   & deactivate
-  $ErrorActionPreference = "SilentlyContinue"
-  Stop-Transcript | out-null
-  $ErrorActionPreference = "Continue"
+  Stop-CcmLogging $ccmLog
   exit 0
 }
 
@@ -181,8 +187,15 @@ if ($ActivateOnly) {
 }
 
 if (-Not (Test-Path $venv_dir)) {
-  Write-Host "Creating virtual environment with uv"
-  $proc = Start-Process -NoNewWindow -PassThru -FilePath "$UV_EXE" -ArgumentList " venv `"$venv_dir`""
+  $venv_args = " venv `"$venv_dir`""
+  if ($PythonVersion) {
+    Write-Host "Creating virtual environment with uv (Python $PythonVersion)"
+    $venv_args = " venv --python $PythonVersion `"$venv_dir`""
+  }
+  else {
+    Write-Host "Creating virtual environment with uv"
+  }
+  $proc = Start-Process -NoNewWindow -PassThru -FilePath "$UV_EXE" -ArgumentList $venv_args
   $proc.WaitForExit()
   $exitCode = $proc.ExitCode
   if (-Not ($exitCode -eq 0)) {
@@ -225,6 +238,16 @@ if (-not $env:UV_NATIVE_TLS -and -not $env:SSL_CERT_FILE -and -not $env:SSL_CERT
   Write-Host "Enabled UV_NATIVE_TLS to use the OS trust store for corporate proxy certificates"
 }
 
+# On hosted agents the uv cache and the workspace sit on different volumes, so
+# uv cannot hardlink and already falls back to copying — it just warns about it
+# twice per run. Declaring the fallback silences the noise without changing what
+# uv does. Deliberately CI-only: on a developer machine cache and venv usually
+# share a filesystem, and forcing copy there would give up hardlinking for real.
+if (-not $env:UV_LINK_MODE -and $azure_ci) {
+  $env:UV_LINK_MODE = "copy"
+  Write-Host "Set UV_LINK_MODE=copy (CI workspace and uv cache are on different volumes)"
+}
+
 $pyproject_path = "$PSCustomScriptRoot/pyproject.toml"
 if($CPUOnlyRequirements) {
   $requirements_path = "$PSCustomScriptRoot/requirements-cpu.txt"
@@ -237,7 +260,7 @@ else {
 }
 
 # When using pyproject.toml with extras (-DevExtras / -AllExtras), the project
-# already declares its own test dependencies � skip base packages to avoid
+# already declares its own test dependencies — skip base packages to avoid
 # version conflicts.  For requirements.txt workflows (or bare pyproject.toml)
 # install a minimal test harness so pytest is always available.
 $skip_base_packages = (
@@ -247,10 +270,13 @@ $skip_base_packages = (
 )
 
 if (-Not $skip_base_packages) {
+  # Deliberately the same set on and off CI. pytest-azurepipelines is intentionally
+  # not installed: it adds a second, NUnit-format reporter (./test-output.xml) that
+  # the JUnit publish cannot read, while ci-checks.ps1 already produces
+  # --junitxml=test-unit.xml and --cov-report=xml for the pipeline templates. It
+  # also turns every transitive DeprecationWarning into a build warning; those stay
+  # visible in the pytest output instead.
   $base_packages = " pytest pytest-cov "
-  if ($azure_ci) {
-    $base_packages += " pytest-azurepipelines"
-  }
 
   Write-Host "Installing base packages with uv"
   $proc = Start-Process -NoNewWindow -PassThru -FilePath "$UV_EXE" -ArgumentList " pip install $base_packages"
@@ -293,6 +319,28 @@ elseif (Test-Path $pyproject_path) {
   }
 }
 
+# Refresh bootstrap tooling. pip is not installed by `uv venv`; it arrives
+# transitively (pip-audit -> pip-api -> pip), and setuptools arrives as a build
+# dependency. `uv pip install` leaves an already-satisfied package alone, so a
+# long-lived venv keeps whatever stale versions it was first seeded with -- and
+# ci-checks.ps1's pip-audit CVE gate then fails on those advisories even when
+# nothing in the project changed. Upgrade only what is already present: bare
+# venvs that never pulled pip in should stay bare.
+$uv_pip_list = & "$UV_EXE" pip list --format json 2>$null
+if (($LASTEXITCODE -eq 0) -and $uv_pip_list) {
+  $bootstrap_packages = @(Get-CcmVenvBootstrapPackages -PipListJson $uv_pip_list)
+  if ($bootstrap_packages.Count -gt 0) {
+    Write-Host "Upgrading bootstrap tooling with uv: $($bootstrap_packages -join ', ')"
+    $bootstrap_args = " pip install --upgrade " + ($bootstrap_packages -join " ")
+    $proc = Start-Process -NoNewWindow -PassThru -FilePath "$UV_EXE" -ArgumentList $bootstrap_args
+    $proc.WaitForExit()
+    $exitCode = $proc.ExitCode
+    if (-Not ($exitCode -eq 0)) {
+      MyThrow("Unable to upgrade bootstrap tooling! Exited with error code $exitCode.")
+    }
+  }
+}
+
 # Detect if parent shell is bash/zsh (script was called from a non-PowerShell shell)
 $parentProcess = Get-Process -Id $PID | Select-Object -ExpandProperty Parent -ErrorAction SilentlyContinue
 if ($parentProcess) {
@@ -309,6 +357,4 @@ if ($parentProcess) {
   }
 }
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
+Stop-CcmLogging $ccmLog

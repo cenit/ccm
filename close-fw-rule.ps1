@@ -58,14 +58,8 @@ $close_fw_rule_version = "0.0.1"
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
-$LogPath = switch ( $IsInGitSubmodule ) {
-  $true { "$PSScriptRoot/../close-fw-rule.log" }
-  $false { "$PSScriptRoot/close-fw-rule.log" }
-}
-Start-Transcript -Path $LogPath
+$ccmLog = Initialize-CcmLogging
+trap { Stop-CcmLogging $ccmLog; break }
 
 Write-Host "Close Firewall (remove rule) version ${close_fw_rule_version}, utils module version ${utils_psm1_version}"
 
@@ -94,6 +88,4 @@ if ($FirewallRuleName -eq "") {
 Remove-NetFirewallRule -DisplayName $FirewallRuleName
 Write-Host "Firewall rule $FirewallRuleName removed" -ForegroundColor Green
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
+Stop-CcmLogging $ccmLog

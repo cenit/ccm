@@ -17,5 +17,20 @@ Thumbs.db
 *.exe
 *.zip
 *.iso
+
+# Test artifacts
+pester-results.xml
+testResults.xml
 aria2*/
 7z*/
+
+# Local brainstorming / planning artifacts (never commit)
+docs/superpowers/
+
+# Claude Code local session data
+.claude/
+
+# >>> CCM logs (managed by Initialize-CcmLogging - do not edit between sentinels) >>>
+deploy-pwsh-profile*.log
+remove-aws-infrastructure*.log
+# <<< CCM logs (managed) <<<

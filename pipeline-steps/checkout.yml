@@ -1,0 +1,56 @@
+# Shared checkout for CCM ECS pipelines.
+#
+# The built-in `submodules: recursive` option cannot be used when a submodule
+# lives in a DIFFERENT Azure DevOps organization: the agent applies its own
+# organization-scoped AUTHORIZATION header to the submodule fetch, and that
+# token is meaningless to the other organization. Running the init as a plain
+# step sends no header at all, which is what a public repository wants.
+parameters:
+  - name: externalSubmodules
+    type: boolean
+    default: false
+  - name: submodulePatVariable
+    type: string
+    default: ''
+
+steps:
+  - ${{ if parameters.externalSubmodules }}:
+    - checkout: self
+      submodules: false
+      # Load-bearing, not just hygiene: this is what makes the agent strip the
+      # org-scoped http.extraheader it wrote to .git/config for this checkout.
+      # That is what leaves the plain `git submodule update` below headerless,
+      # which is exactly what the other organization's repo needs. Flipping
+      # this to true would silently reintroduce the header and turn the
+      # submodule fetch into a 401 with no obvious cause.
+      persistCredentials: false
+      fetchDepth: 1
+  - ${{ else }}:
+    - checkout: self
+      submodules: 'recursive'
+      persistCredentials: false
+      fetchDepth: 1
+
+  - ${{ if parameters.externalSubmodules }}:
+    - pwsh: |
+        $ErrorActionPreference = 'Stop'
+        Set-Location $env:BUILD_REPOSITORY_LOCALPATH
+        $pat = $env:SUBMODULE_PAT
+        if ($pat) {
+            # Private cross-org submodule: authenticate with a PAT. `git -c`
+            # propagates to submodule child processes via GIT_CONFIG_PARAMETERS
+            # and is never written to .git/config.
+            $header = "AUTHORIZATION: Basic " + [Convert]::ToBase64String(
+                [Text.Encoding]::ASCII.GetBytes(":$pat"))
+            git -c http.extraheader="$header" submodule update --init --recursive --depth 1
+        } else {
+            git submodule update --init --recursive --depth 1
+        }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "##vso[task.logissue type=error]Submodule init failed"
+            exit 1
+        }
+      displayName: 'Init submodules (external)'
+      ${{ if parameters.submodulePatVariable }}:
+        env:
+          SUBMODULE_PAT: $[ variables['${{ parameters.submodulePatVariable }}'] ]

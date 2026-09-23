@@ -151,20 +151,17 @@ else {
   $IsInGitSubmodule = $false
 }
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
 if($IsInGitSubmodule) {
   $PSCustomScriptRoot = Split-Path $PSScriptRoot -Parent
 }
 else {
   $PSCustomScriptRoot = $PSScriptRoot
 }
-$BuildDocLogPath = "$PSCustomScriptRoot/build-doc.log"
-Start-Transcript -Path $BuildDocLogPath
+$ccmLog = Initialize-CcmLogging
+trap { Stop-CcmLogging $ccmLog; break }
 
 Write-Host "Build doc script version ${build_doc_ps1_version}, utils module version ${utils_psm1_version}"
-Write-Host "Working directory: $PSCustomScriptRoot, log file: $BuildDocLogPath, $script_name is in submodule: $IsInGitSubmodule"
+Write-Host "Working directory: $PSCustomScriptRoot, log file: $($ccmLog.LogPath), $script_name is in submodule: $IsInGitSubmodule"
 
 Write-Host -NoNewLine "PowerShell version:"
 $PSVersionTable.PSVersion
@@ -705,6 +702,4 @@ if ($CreateOverlay) {
 Write-Host "Build complete!" -ForegroundColor Green
 Pop-Location
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
+Stop-CcmLogging $ccmLog

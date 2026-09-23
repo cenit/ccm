@@ -1,0 +1,646 @@
+# Shared Azure DevOps pipeline template for AWS-ECS projects.
+#
+# Consumed via a thin stub (see CCM/README.md "AWS ECS pipeline template"):
+#   resources: { repositories: [ { repository: ccm, type: github, name: cenit/ccm, endpoint: my-github-connection, ref: refs/heads/master } ] }
+#   extends: { template: azure-pipelines-ecs.yml@ccm, parameters: { variableGroup: ..., environment: ... } }
+#
+# The stub owns trigger/pr/schedules. PR previews are DEFAULT ON; the stub MUST
+# include a daily schedule with displayName 'Daily preview cleanup' for the
+# CleanupPreviews stage to fire.
+
+parameters:
+  - name: variableGroup
+    type: string
+  - name: environment
+    type: string
+  - name: pythonVersion
+    type: string
+    default: '3.12'
+  - name: nodeVersion
+    type: string
+    default: '20.x'
+  - name: nodeOptions
+    type: string
+    # Vite/tsc builds of a large enough bundle (a multi-MB JS bundle plus a
+    # sourcemap, easily tens of MB) exceed Node's default old-space ceiling and
+    # abort with "FATAL ERROR: Reached heap limit Allocation failed -
+    # JavaScript heap out of memory", even though the agent itself has ample
+    # memory (the constraint is V8's default heap, not the host). Applied as
+    # NODE_OPTIONS on the ci-checks.ps1 step, which runs the frontend build
+    # sanity check. Override with a different value, or set '' to omit
+    # NODE_OPTIONS entirely and fall back to Node's own default.
+    default: '--max-old-space-size=4096'
+  - name: pool
+    type: string
+    default: Default
+  - name: vmImage
+    type: string
+    default: ''
+  - name: externalSubmodules
+    type: boolean
+    default: false
+  - name: submodulePatVariable
+    type: string
+    default: ''
+  - name: hasMigrations
+    type: boolean
+    default: false
+  - name: prPreview
+    type: boolean
+    default: true
+  - name: useTarContext
+    type: boolean
+    default: false
+  - name: noCache
+    type: boolean
+    # Build images with --no-cache. Normally unnecessary, but a self-hosted agent's
+    # local layer store can be silently corrupted (typically by the build disk
+    # filling up mid-write); the damage only surfaces at push time as
+    # "reading blob ...: file integrity checksum failed for <path>", and every
+    # cached rebuild reuses the same bad layer. deploy-ecs.ps1 already self-heals
+    # that case (rebuild --no-cache, retry the push once), so set this only to force
+    # it up front. It can also be turned on for a single run without a commit, by
+    # queueing with the pipeline variable noCache=true.
+    default: false
+  - name: previewBasePathBuildArg
+    type: string
+    default: ''
+  - name: buildArgs
+    type: object
+    default: []
+  - name: previewBuildArgs
+    type: object
+    default: []
+  # Extra environment variables for the image-build steps (BuildImage and
+  # PreviewImage), as a NAME: value mapping. Empty by default, so no existing
+  # consumer changes behaviour.
+  #
+  # This exists for **secret** variable-group entries. A non-secret group
+  # variable is already injected into every script step automatically and needs
+  # nothing here; a secret one is deliberately not, and must be mapped through
+  # a step's `env:` — which a consumer extending this template cannot do. Use
+  # this to hand a credential to a repo's `pre-build.ps1` (the hook
+  # deploy-ecs.ps1 runs before `docker build`).
+  #
+  # NOT the same as buildArgs: those become `--build-arg` and land in the
+  # image's build history, so a secret passed that way is readable by anyone
+  # who can pull the image. These stay in the agent's process environment and
+  # never reach the image.
+  #   extraEnv:
+  #     MY_REGISTRY_TOKEN: $(MY_REGISTRY_TOKEN)
+  - name: extraEnv
+    type: object
+    default: {}
+  - name: fullTestScheduleName
+    type: string
+    default: ''
+  # Markdown documents to render to PDF with pandoc after the quality gates.
+  # List of {input, output} objects, both paths relative to the consumer
+  # repo's root. Empty by default: no render steps, no artifact publish, and
+  # no new requirement on the agent. Rendering needs an agent with pandoc and
+  # mermaid-filter installed.
+  #   pandocDocuments:
+  #     - input: docs/my-doc.md
+  #       output: docs/my-doc.pdf
+  - name: pandocDocuments
+    type: object
+    default: []
+
+variables:
+  # Deploy branches: main + master. dev/* and PRs run CI (+ previews) only.
+  isDeployBranch: $[or(
+      eq(variables['Build.SourceBranch'], 'refs/heads/main'),
+      eq(variables['Build.SourceBranch'], 'refs/heads/master')
+    )]
+  isPullRequest: $[ eq(variables['Build.Reason'], 'PullRequest') ]
+  isPreviewCleanupSchedule: $[ eq(variables['Build.CronSchedule.DisplayName'], 'Daily preview cleanup') ]
+  isFullTestSchedule: $[ and(
+      ne('${{ parameters.fullTestScheduleName }}', ''),
+      eq(variables['Build.CronSchedule.DisplayName'], '${{ parameters.fullTestScheduleName }}')
+    ) ]
+
+stages:
+  - stage: Build
+    displayName: 'Build, test & quality gates'
+    condition: and(succeeded(), ne(variables.isPreviewCleanupSchedule, true))
+    jobs:
+      - job: build
+        displayName: 'Build'
+        pool:
+          ${{ if parameters.vmImage }}:
+            vmImage: ${{ parameters.vmImage }}
+          ${{ else }}:
+            name: ${{ parameters.pool }}
+        timeoutInMinutes: 90
+        cancelTimeoutInMinutes: 10
+        variables:
+          TF_BUILD: 'True'
+          AZURE_PIPELINES: 'True'
+        steps:
+          - template: pipeline-steps/checkout.yml
+            parameters:
+              externalSubmodules: ${{ parameters.externalSubmodules }}
+              submodulePatVariable: ${{ parameters.submodulePatVariable }}
+
+          # UseNode@1 (not NodeTool@0): NodeTool@0 is deprecated and emits two
+          # warnings on every Build job. Same tool-installer behaviour; the
+          # version input is named `version` instead of `versionSpec`.
+          # Requires agent 2.144.0+, which current agents are well past.
+          - task: UseNode@1
+            displayName: 'Install Node.js ${{ parameters.nodeVersion }}'
+            inputs:
+              version: '${{ parameters.nodeVersion }}'
+
+          - ${{ if parameters.vmImage }}:
+              # Self-hosted agents already have uv preinstalled;
+              # this step is compiled out entirely when vmImage is unset, so those agents
+              # are completely unaffected. Microsoft-hosted images (e.g. ubuntu-latest) do
+              # NOT ship uv, which CCM/setup-venv.ps1 requires - see the failure this fixes:
+              # "Could not find uv, please install it (...)" during ci-checks.ps1.
+              - pwsh: |
+                  $ErrorActionPreference = 'Stop'
+
+                  $existing = Get-Command uv -ErrorAction SilentlyContinue
+                  if ($existing) {
+                    Write-Host "uv already on PATH at $($existing.Source) - nothing to install."
+                  } else {
+                    Write-Host "uv not found on this hosted agent (vmImage: ${{ parameters.vmImage }}). Installing via the official astral.sh installer..."
+                    if ($IsWindows) {
+                      powershell -ExecutionPolicy ByPass -Command "irm https://astral.sh/uv/install.ps1 | iex"
+                    } else {
+                      curl -LsSf https://astral.sh/uv/install.sh | sh
+                    }
+
+                    # The installer places uv in $HOME/.local/bin, which is not on PATH for
+                    # later steps unless we prepend it here. Also update $env:PATH so the
+                    # verification below (this same step) can find it immediately.
+                    $uvBin = Join-Path $HOME '.local/bin'
+                    Write-Host "Adding $uvBin to PATH for this and subsequent steps"
+                    Write-Host "##vso[task.prependpath]$uvBin"
+                    $env:PATH = "$uvBin$([System.IO.Path]::PathSeparator)$env:PATH"
+                  }
+
+                  $uvCommand = Get-Command uv -ErrorAction SilentlyContinue
+                  if (-not $uvCommand) {
+                    Write-Host "##vso[task.logissue type=error]uv install did not produce a working 'uv' executable on PATH"
+                    exit 1
+                  }
+                  uv --version
+                  if ($LASTEXITCODE -ne 0) {
+                    Write-Host "##vso[task.logissue type=error]'uv --version' failed after install - uv is not working"
+                    exit 1
+                  }
+                displayName: 'Install uv on hosted agent (idempotent)'
+
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              Set-Location $env:BUILD_REPOSITORY_LOCALPATH
+              # Runtime branching only (see the BuildImage step's note): do NOT use
+              # template if/each structural directives inside a pwsh block scalar -
+              # the template engine expands such expressions even inside literal
+              # block scalars. The cron displayName is only known at run time anyway.
+              $checkArgs = @{
+                ConfigFile         = './ecs-config.json'
+                DoNotUpdateTOOL    = $true
+                DisableInteractive = $true
+                PythonVersion      = '${{ parameters.pythonVersion }}'
+              }
+              if ($env:CCM_FULL_TEST_RUN -eq 'True') {
+                Write-Host 'Full-test schedule: running every test (marker filter cleared).'
+                $checkArgs.TestMarkers = ''
+              }
+              ./CCM/ci-checks.ps1 @checkArgs
+            displayName: 'Quality gates (CCM/ci-checks.ps1)'
+            env:
+              CCM_FULL_TEST_RUN: $(isFullTestSchedule)
+              # Compile-time structural directive (not inside the pwsh block scalar
+              # above, so the file's standing trap doesn't apply here) - omits the
+              # NODE_OPTIONS key entirely when nodeOptions is '', rather than setting
+              # NODE_OPTIONS='' (harmless either way, but this is the cleaner of the
+              # two once a structural directive is already idiomatic in this file,
+              # e.g. the vmImage/pool selection above).
+              ${{ if parameters.nodeOptions }}:
+                NODE_OPTIONS: ${{ parameters.nodeOptions }}
+
+          - task: PublishTestResults@2
+            displayName: 'Publish test results'
+            condition: always()
+            inputs:
+              testResultsFormat: 'JUnit'
+              # Named, not 'test-*.xml': that pattern is format-blind, and it collected
+              # any file a pytest plugin happened to call test-something.xml and handed
+              # it to a JUnit parser. These are the two reports CCM defines -- pytest's
+              # (ci-checks.ps1 passes --junitxml=test-unit.xml) and the frontend
+              # runner's. Still recursive, because a JS reporter resolves its output
+              # path relative to the frontend directory, not the repo root.
+              testResultsFiles: |
+                **/test-unit.xml
+                **/test-frontend.xml
+              failTaskOnFailedTests: true
+
+          - task: PublishCodeCoverageResults@2
+            displayName: 'Publish coverage'
+            condition: always()
+            inputs:
+              summaryFileLocation: '$(System.DefaultWorkingDirectory)/coverage.xml'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish security + license reports'
+            condition: always()
+            inputs:
+              PathtoPublish: 'security-reports-staging'
+              ArtifactName: 'security-reports'
+              publishLocation: 'Container'
+
+          # pandocDocuments defaults to [], so all three blocks below expand to
+          # zero steps and the publish task does not appear: adopting this
+          # template must not impose pandoc, an extra artifact, or any new
+          # agent requirement on a project that never sets the parameter.
+          #
+          # The staging step is deliberately one Copy-Item step per document,
+          # emitted by this each-loop at the step level, rather than a single
+          # step containing an ${{ each }} expanded inside its pwsh script
+          # text. The latter was tried and rejected: template expressions like
+          # ${{ each }}/${{ if }} are structural directives that only expand
+          # correctly as a YAML mapping key (as used here, and in the render
+          # loop just below), not as text lines inside a script block scalar,
+          # where the compiler has no defined way to turn the loop into
+          # repeated script lines. This form is unambiguously valid because it
+          # mirrors the render loop's own already-correct pattern.
+          - ${{ each doc in parameters.pandocDocuments }}:
+            - pwsh: |
+                $ErrorActionPreference = 'Stop'
+                Set-Location $env:BUILD_REPOSITORY_LOCALPATH
+                pandoc --citeproc -F mermaid-filter.cmd -f markdown+implicit_figures '${{ doc.input }}' --output '${{ doc.output }}'
+                if ($LASTEXITCODE -ne 0) { throw "pandoc failed for ${{ doc.input }}" }
+              displayName: 'Render ${{ doc.input }}'
+
+          - ${{ each doc in parameters.pandocDocuments }}:
+            - pwsh: |
+                $ErrorActionPreference = 'Stop'
+                Set-Location $env:BUILD_REPOSITORY_LOCALPATH
+                $staging = Join-Path '$(Build.ArtifactStagingDirectory)' 'documents'
+                New-Item -ItemType Directory -Force -Path $staging | Out-Null
+                Copy-Item '${{ doc.output }}' $staging
+              displayName: 'Stage ${{ doc.output }}'
+
+          - ${{ if gt(length(parameters.pandocDocuments), 0) }}:
+            - task: PublishBuildArtifacts@1
+              displayName: 'Publish rendered documents'
+              inputs:
+                pathToPublish: '$(Build.ArtifactStagingDirectory)/documents'
+                artifactName: 'documents'
+                publishLocation: 'Container'
+
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              Set-Location $env:BUILD_REPOSITORY_LOCALPATH
+              $config = Get-Content ./ecs-config.json -Raw | ConvertFrom-Json
+              $versionFile = if ($config.VersionFile) { $config.VersionFile } else { 'pyproject.toml' }
+              $versionPattern = if ($config.VersionPattern) { $config.VersionPattern } else { '(?m)^version\s*=\s*"([\d.]+)"' }
+              $content = Get-Content $versionFile -Raw
+              if ($content -match $versionPattern) {
+                  $appVersion = $matches[1]
+              } else {
+                  Write-Host "##vso[task.logissue type=error]Could not extract version from $versionFile"
+                  exit 1
+              }
+              $shortSha = "$env:BUILD_SOURCEVERSION".Substring(0, 7)
+              if ($env:BUILD_REASON -eq 'PullRequest') {
+                  $prId = $env:SYSTEM_PULLREQUEST_PULLREQUESTID
+                  if (-not $prId) { $prId = $env:SYSTEM_PULLREQUEST_PULLREQUESTNUMBER }
+                  if (-not $prId) { Write-Host "##vso[task.logissue type=error]No PR id for preview image tag"; exit 1 }
+                  $imageTag = "pr-${prId}-${shortSha}"
+              } else {
+                  $imageTag = "v${appVersion}-${shortSha}"
+              }
+              Write-Host "Image tag: $imageTag"
+              Write-Host "##vso[task.setvariable variable=imageTag;isOutput=true]$imageTag"
+            name: computeTag
+            displayName: 'Compute image tag'
+
+  - stage: BuildImage
+    displayName: 'Build & push image to ECR'
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables.isDeployBranch, true), ne(variables.isPreviewCleanupSchedule, true), ne(variables.isFullTestSchedule, true))
+    variables:
+      imageTag: $[ stageDependencies.Build.build.outputs['computeTag.imageTag'] ]
+    jobs:
+      - job: pushImage
+        displayName: 'Build & push image'
+        pool:
+          ${{ if parameters.vmImage }}:
+            vmImage: ${{ parameters.vmImage }}
+          ${{ else }}:
+            name: ${{ parameters.pool }}
+        timeoutInMinutes: 60
+        cancelTimeoutInMinutes: 10
+        variables:
+          - group: ${{ parameters.variableGroup }}
+        steps:
+          - template: pipeline-steps/checkout.yml
+            parameters:
+              externalSubmodules: ${{ parameters.externalSubmodules }}
+              submodulePatVariable: ${{ parameters.submodulePatVariable }}
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              Set-Location $env:BUILD_REPOSITORY_LOCALPATH
+              # All branching/looping is at runtime; buildArgs arrive as a '||'-joined
+              # env var (preserves $(VAR) macro expansion). NB: do NOT use template
+              # if/each structural directives inside a pwsh block scalar — the template
+              # engine expands such expressions even inside literal block scalars.
+              $deployArgs = @{ SkipDeploy = $true; ImageTag = "$(imageTag)"; ConfigFile = "./ecs-config.json" }
+              if ('${{ parameters.useTarContext }}' -eq 'True') { $deployArgs.UseTarContext = $true }
+              # noCache: template parameter, or the CCM_NO_CACHE env var so a single
+              # run can force it via a queue-time variable. An undefined variable stays
+              # the literal '$(noCache)', which simply does not match 'true'.
+              if ('${{ parameters.noCache }}' -eq 'True' -or $env:CCM_NO_CACHE -eq 'true') { $deployArgs.NoCache = $true }
+              $buildArgs = @()
+              if ($env:CCM_BUILD_ARGS) { $buildArgs = $env:CCM_BUILD_ARGS -split '\|\|' }
+              if ($buildArgs.Count -gt 0) { $deployArgs.BuildArgs = $buildArgs }
+              ./CCM/deploy-ecs.ps1 @deployArgs
+            displayName: 'Build & push (deploy-ecs.ps1 -SkipDeploy)'
+            env:
+              CCM_BUILD_ARGS: ${{ join('||', parameters.buildArgs) }}
+              CCM_NO_CACHE: $(noCache)
+              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+              AWS_DEFAULT_REGION: $(AWS_DEFAULT_REGION)
+              AWS_ACCOUNT_ID: $(AWS_ACCOUNT_ID)
+              # Consumer-supplied. Reusing one of the fixed names above is a
+              # duplicate key, not an override — pick a different name.
+              ${{ each pair in parameters.extraEnv }}:
+                ${{ pair.key }}: ${{ pair.value }}
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              Set-Location $env:BUILD_REPOSITORY_LOCALPATH
+              $log = Get-ChildItem -Path . -Filter 'deploy-ecs*.log' -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+              if ($log) { Write-Host "##vso[task.setvariable variable=deployEcsLogPath]$($log.Name)" }
+              else { Write-Host "##vso[task.setvariable variable=deployEcsLogPath]" }
+            displayName: 'Locate deploy-ecs log'
+            condition: always()
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish deploy-ecs log'
+            condition: and(always(), ne(variables['deployEcsLogPath'], ''))
+            inputs:
+              PathtoPublish: '$(deployEcsLogPath)'
+              ArtifactName: 'deploy-ecs-log-buildimage'
+              publishLocation: 'Container'
+
+  - ${{ if parameters.prPreview }}:
+      - stage: PreviewImage
+        displayName: 'PR preview: build & push image'
+        dependsOn: Build
+        condition: and(succeeded(), eq(variables.isPullRequest, true))
+        variables:
+          imageTag: $[ stageDependencies.Build.build.outputs['computeTag.imageTag'] ]
+        jobs:
+          - job: pushPreviewImage
+            displayName: 'Build & push PR image'
+            pool:
+              ${{ if parameters.vmImage }}:
+                vmImage: ${{ parameters.vmImage }}
+              ${{ else }}:
+                name: ${{ parameters.pool }}
+            timeoutInMinutes: 60
+            cancelTimeoutInMinutes: 10
+            variables:
+              - group: ${{ parameters.variableGroup }}
+            steps:
+              - template: pipeline-steps/checkout.yml
+                parameters:
+                  externalSubmodules: ${{ parameters.externalSubmodules }}
+                  submodulePatVariable: ${{ parameters.submodulePatVariable }}
+              - pwsh: |
+                  $ErrorActionPreference = 'Stop'
+                  Set-Location $env:BUILD_REPOSITORY_LOCALPATH
+                  # Runtime branching only (see BuildImage note). buildArgs via env var.
+                  $deployArgs = @{ SkipDeploy = $true; SkipLatestTag = $true; ImageTag = "$(imageTag)"; ConfigFile = "./ecs-config.json" }
+                  if ('${{ parameters.useTarContext }}' -eq 'True') { $deployArgs.UseTarContext = $true }
+                  # See the BuildImage step for why CCM_NO_CACHE is honoured here too.
+                  if ('${{ parameters.noCache }}' -eq 'True' -or $env:CCM_NO_CACHE -eq 'true') { $deployArgs.NoCache = $true }
+                  $previewArgs = @()
+                  if ($env:CCM_BUILD_ARGS) { $previewArgs = $env:CCM_BUILD_ARGS -split '\|\|' }
+                  $basePathArgName = '${{ parameters.previewBasePathBuildArg }}'
+                  if ($basePathArgName) {
+                      $prId = $env:SYSTEM_PULLREQUEST_PULLREQUESTID
+                      if (-not $prId) { $prId = $env:SYSTEM_PULLREQUEST_PULLREQUESTNUMBER }
+                      $config = Get-Content ./ecs-config.json -Raw | ConvertFrom-Json
+                      $tpl = $config.PreviewEnvironments.PathPrefixTemplate
+                      if (-not $tpl) { $tpl = '/_pr/{id}' }
+                      $basePath = ($tpl -replace '\{id\}', $prId).TrimEnd('/') + '/'
+                      $previewArgs += "$basePathArgName=$basePath"
+                  }
+                  if ($previewArgs.Count -gt 0) { $deployArgs.BuildArgs = $previewArgs }
+                  ./CCM/deploy-ecs.ps1 @deployArgs
+                displayName: 'Build & push PR image'
+                env:
+                  # previewBuildArgs (NOT buildArgs) — previews get their own,
+                  # independent build-arg list. This is how a project bakes a
+                  # different value into the preview image than production gets
+                  # (e.g. disabling SSO for previews while prod keeps it on)
+                  # without the two ever sharing a single runtime value.
+                  CCM_BUILD_ARGS: ${{ join('||', parameters.previewBuildArgs) }}
+                  CCM_NO_CACHE: $(noCache)
+                  AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+                  AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+                  AWS_DEFAULT_REGION: $(AWS_DEFAULT_REGION)
+                  AWS_ACCOUNT_ID: $(AWS_ACCOUNT_ID)
+                  # Same extraEnv as BuildImage — unlike buildArgs/previewBuildArgs
+                  # there is no reason for a preview to need a *different*
+                  # credential, and a second parameter would only be one more
+                  # thing to forget when a preview build starts failing.
+                  ${{ each pair in parameters.extraEnv }}:
+                    ${{ pair.key }}: ${{ pair.value }}
+
+      - stage: PreviewDeploy
+        displayName: 'PR preview: deploy ECS service'
+        dependsOn:
+          - Build
+          - PreviewImage
+        condition: and(succeeded(), eq(variables.isPullRequest, true))
+        variables:
+          imageTag: $[ stageDependencies.Build.build.outputs['computeTag.imageTag'] ]
+        jobs:
+          - deployment: deployPreview
+            displayName: 'Deploy PR preview'
+            pool:
+              ${{ if parameters.vmImage }}:
+                vmImage: ${{ parameters.vmImage }}
+              ${{ else }}:
+                name: ${{ parameters.pool }}
+            timeoutInMinutes: 30
+            cancelTimeoutInMinutes: 10
+            environment: '${{ parameters.environment }}-preview'
+            variables:
+              - group: ${{ parameters.variableGroup }}
+            strategy:
+              runOnce:
+                deploy:
+                  steps:
+                    - download: none
+                    - template: pipeline-steps/checkout.yml
+                      parameters:
+                        externalSubmodules: ${{ parameters.externalSubmodules }}
+                        submodulePatVariable: ${{ parameters.submodulePatVariable }}
+                    - pwsh: |
+                        $ErrorActionPreference = 'Stop'
+                        Set-Location $env:BUILD_REPOSITORY_LOCALPATH
+                        ./CCM/deploy-ecs-preview.ps1 -SkipBuild -ImageTag "$(imageTag)" -ConfigFile ./ecs-config.json
+                      displayName: 'Deploy ECS PR preview'
+                      env:
+                        AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+                        AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+                        AWS_DEFAULT_REGION: $(AWS_DEFAULT_REGION)
+                        AWS_ACCOUNT_ID: $(AWS_ACCOUNT_ID)
+
+  - ${{ if parameters.hasMigrations }}:
+      - stage: Migrate
+        displayName: 'Run database migrations'
+        dependsOn:
+          - Build
+          - BuildImage
+        condition: and(succeeded(), eq(variables.isDeployBranch, true), ne(variables.isPreviewCleanupSchedule, true), ne(variables.isFullTestSchedule, true))
+        variables:
+          imageTag: $[ stageDependencies.Build.build.outputs['computeTag.imageTag'] ]
+        jobs:
+          - deployment: migrate
+            displayName: 'Alembic upgrade head (ECS one-shot)'
+            pool:
+              ${{ if parameters.vmImage }}:
+                vmImage: ${{ parameters.vmImage }}
+              ${{ else }}:
+                name: ${{ parameters.pool }}
+            timeoutInMinutes: 30
+            cancelTimeoutInMinutes: 10
+            environment: '${{ parameters.environment }}'
+            variables:
+              - group: ${{ parameters.variableGroup }}
+            strategy:
+              runOnce:
+                deploy:
+                  steps:
+                    - download: none
+                    - template: pipeline-steps/checkout.yml
+                      parameters:
+                        externalSubmodules: ${{ parameters.externalSubmodules }}
+                        submodulePatVariable: ${{ parameters.submodulePatVariable }}
+                    - pwsh: |
+                        $ErrorActionPreference = 'Stop'
+                        Set-Location $env:BUILD_REPOSITORY_LOCALPATH
+                        ./CCM/deploy-ecs.ps1 -SkipBuild -MigrationsOnly -ImageTag "$(imageTag)" -ConfigFile ./ecs-config.json
+                      displayName: 'Run migrations (deploy-ecs.ps1 -MigrationsOnly)'
+                      env:
+                        AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+                        AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+                        AWS_DEFAULT_REGION: $(AWS_DEFAULT_REGION)
+                        AWS_ACCOUNT_ID: $(AWS_ACCOUNT_ID)
+
+  - stage: Deploy
+    displayName: 'Deploy to ECS'
+    ${{ if parameters.hasMigrations }}:
+      dependsOn: [Build, BuildImage, Migrate]
+    ${{ else }}:
+      dependsOn: [Build, BuildImage]
+    condition: and(succeeded(), eq(variables.isDeployBranch, true), ne(variables.isPreviewCleanupSchedule, true), ne(variables.isFullTestSchedule, true))
+    variables:
+      imageTag: $[ stageDependencies.Build.build.outputs['computeTag.imageTag'] ]
+    jobs:
+      - deployment: deployEcs
+        displayName: 'Update ECS service'
+        pool:
+          ${{ if parameters.vmImage }}:
+            vmImage: ${{ parameters.vmImage }}
+          ${{ else }}:
+            name: ${{ parameters.pool }}
+        timeoutInMinutes: 30
+        cancelTimeoutInMinutes: 10
+        environment: '${{ parameters.environment }}'
+        variables:
+          - group: ${{ parameters.variableGroup }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: none
+                - template: pipeline-steps/checkout.yml
+                  parameters:
+                    externalSubmodules: ${{ parameters.externalSubmodules }}
+                    submodulePatVariable: ${{ parameters.submodulePatVariable }}
+                - pwsh: |
+                    $ErrorActionPreference = 'Stop'
+                    Set-Location $env:BUILD_REPOSITORY_LOCALPATH
+                    ./CCM/deploy-ecs.ps1 -SkipBuild -ImageTag "$(imageTag)" -ConfigFile ./ecs-config.json
+                  displayName: 'Register task-def & update service (deploy-ecs.ps1 -SkipBuild)'
+                  env:
+                    AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+                    AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+                    AWS_DEFAULT_REGION: $(AWS_DEFAULT_REGION)
+                    AWS_ACCOUNT_ID: $(AWS_ACCOUNT_ID)
+                - pwsh: |
+                    $ErrorActionPreference = 'Stop'
+                    Set-Location $env:BUILD_REPOSITORY_LOCALPATH
+                    $config = Get-Content ./ecs-config.json -Raw | ConvertFrom-Json
+                    $project = $config.ProjectName
+                    $region = $config.AwsRegion
+                    $cluster = "${project}-cluster"
+                    $service = "${project}-service"
+                    Write-Host "Waiting for PRIMARY deployment rolloutState to reach COMPLETED (up to 120s)..."
+                    $rollout = ""
+                    for ($i = 1; $i -le 12; $i++) {
+                        $rollout = aws ecs describe-services --cluster $cluster --services $service --region $region --query 'services[0].deployments[?status==`PRIMARY`].rolloutState | [0]' --output text
+                        Write-Host "  Attempt $i/12 - rolloutState: $rollout"
+                        if ($rollout -eq 'COMPLETED') { break }
+                        if ($rollout -eq 'FAILED') {
+                            Write-Host "##vso[task.logissue type=error]PRIMARY deployment is FAILED"
+                            aws ecs describe-services --cluster $cluster --services $service --region $region --query 'services[0].events[0:5]' --output table
+                            exit 1
+                        }
+                        Start-Sleep -Seconds 10
+                    }
+                    if ($rollout -ne 'COMPLETED') {
+                        Write-Host "##vso[task.logissue type=error]PRIMARY deployment is '$rollout' after 120s"
+                        aws ecs describe-services --cluster $cluster --services $service --region $region --query 'services[0].events[0:5]' --output table
+                        exit 1
+                    }
+                    aws ecs describe-services --cluster $cluster --services $service --region $region --query 'services[0].{desired:desiredCount,running:runningCount,pending:pendingCount,taskDef:taskDefinition}' --output table
+                  displayName: 'Post-deploy verification (AWS API only)'
+                  env:
+                    AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+                    AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+                    AWS_DEFAULT_REGION: $(AWS_DEFAULT_REGION)
+                    AWS_ACCOUNT_ID: $(AWS_ACCOUNT_ID)
+
+  - ${{ if parameters.prPreview }}:
+      - stage: CleanupPreviews
+        displayName: 'Cleanup expired PR previews'
+        dependsOn: []
+        condition: eq(variables.isPreviewCleanupSchedule, true)
+        jobs:
+          - job: cleanupPreviews
+            displayName: 'Cleanup ECS previews'
+            pool:
+              ${{ if parameters.vmImage }}:
+                vmImage: ${{ parameters.vmImage }}
+              ${{ else }}:
+                name: ${{ parameters.pool }}
+            timeoutInMinutes: 30
+            cancelTimeoutInMinutes: 10
+            variables:
+              - group: ${{ parameters.variableGroup }}
+            steps:
+              - template: pipeline-steps/checkout.yml
+                parameters:
+                  externalSubmodules: ${{ parameters.externalSubmodules }}
+                  submodulePatVariable: ${{ parameters.submodulePatVariable }}
+              - pwsh: |
+                  $ErrorActionPreference = 'Stop'
+                  Set-Location $env:BUILD_REPOSITORY_LOCALPATH
+                  ./CCM/cleanup-ecs-previews.ps1 -ConfigFile ./ecs-config.json -AzureDevOpsToken "$env:SYSTEM_ACCESSTOKEN"
+                displayName: 'Remove expired or closed PR previews'
+                env:
+                  AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+                  AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+                  AWS_DEFAULT_REGION: $(AWS_DEFAULT_REGION)
+                  AWS_ACCOUNT_ID: $(AWS_ACCOUNT_ID)
+                  SYSTEM_ACCESSTOKEN: $(System.AccessToken)

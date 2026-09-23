@@ -1,0 +1,337 @@
+# Shared Azure DevOps pipeline template for C++ (CMake + vcpkg) projects.
+#
+# Consumed downstream via a thin stub (see CCM/README.md "C++ pipeline template"):
+#
+#   resources:
+#     repositories:
+#       - repository: ccm
+#         type: github
+#         name: cenit/ccm
+#         endpoint: my-github-connection
+#         ref: refs/heads/master
+#   extends:
+#     template: azure-pipelines-cpp.yml@ccm
+#     parameters:
+#       ccmPath: CCM
+#       platforms: [windows]
+#       installerType: cpack
+#
+# The downstream stub also owns `trigger`, `pr`, and the weekly `schedules:`
+# block — Azure DevOps ignores triggers/schedules defined inside an extends
+# template, so they cannot live here.
+
+parameters:
+  - name: ccmPath
+    type: string
+    default: CCM
+  - name: platforms
+    # Supported values: 'windows' and 'linux'. One job is emitted per entry;
+    # any other value produces a job with no pool and fails at queue time.
+    type: object
+    default: [windows]
+  - name: windowsPool
+    type: string
+    default: Default
+  - name: linuxPool
+    type: string
+    default: Default
+  - name: enableTests
+    type: boolean
+    default: true
+  - name: enableDebugBuild
+    # Emit a Debug compile-check build even when the project has no ctest suite
+    # (enableTests already implies a Debug build).
+    type: boolean
+    default: false
+  - name: enableOrt
+    type: boolean
+    default: true
+  - name: ortExtraArguments
+    # Extra build-ort.ps1 switches, e.g. '-EnableCustomVCPKGRegistry -DoNotUpdateVCPKG'
+    # on agents that pre-provision an externally-managed vcpkg registry.
+    type: string
+    default: ''
+  - name: ortProjectFeatures
+    # vcpkg manifest feature sets to produce per-feature ORT reports for
+    # (one build-ort.ps1 run per entry, forwarded as -ProjectFeatures); when
+    # empty a single report with the manifest's default features is produced.
+    # Outputs are renamed <repo>_disclosure_document_<feature>.pdf/.html so
+    # successive runs don't overwrite each other.
+    type: object
+    default: []
+  - name: additionalBuildSetup
+    # Extra CMake arguments forwarded as build.ps1 -AdditionalBuildSetup on the
+    # Debug and Release builds (e.g. '-DENABLE_X=ON'). Also pass cache-sticky
+    # options explicitly here to keep reused agent workspaces deterministic.
+    type: string
+    default: ''
+  - name: installerType
+    type: string
+    default: cpack
+    values:
+      - cpack
+      - none
+  - name: installerGlob
+    type: string
+    default: ''
+  - name: buildDir
+    type: string
+    default: build_release
+  - name: vcpkgBinarySources
+    type: string
+    default: 'clear;default,readwrite'
+  - name: timeoutInMinutes
+    # When the shared vcpkg registry baseline moves, every consumer rebuilds
+    # its whole dependency tree from source on the next run — Qt-sized trees
+    # exceeded the old 300 default. Self-hosted agents have no platform cap.
+    type: number
+    default: 720
+  - name: versionHeaderPath
+    type: string
+    default: ''
+  - name: gitSslNoVerify
+    type: boolean
+    default: false
+  - name: extraSteps
+    type: stepList
+    default: []
+
+jobs:
+  - ${{ each platform in parameters.platforms }}:
+      - job: build_${{ platform }}
+        displayName: 'Build (${{ platform }})'
+        timeoutInMinutes: ${{ parameters.timeoutInMinutes }}
+        cancelTimeoutInMinutes: 10
+        ${{ if eq(platform, 'windows') }}:
+          pool:
+            name: ${{ parameters.windowsPool }}
+        ${{ if eq(platform, 'linux') }}:
+          pool:
+            name: ${{ parameters.linuxPool }}
+        variables:
+          VCPKG_BINARY_SOURCES: ${{ parameters.vcpkgBinarySources }}
+          VCPKG_FORCE_DOWNLOADED_BINARIES: 'TRUE'
+          # GIT_LFS_SKIP_SMUDGE is deliberately NOT a job-wide variable: it would
+          # apply to the checkout step and leave LFS payloads inside submodules
+          # as pointer files. It is set as step-level env on the vcpkg-driven
+          # build steps below instead (VCPKG_KEEP_ENV_VARS forwards it to vcpkg).
+          VCPKG_KEEP_ENV_VARS: 'GIT_LFS_SKIP_SMUDGE'
+          ShortHash: $[substring(variables['Build.SourceVersion'], 0, 7)]
+          ${{ if eq(parameters.gitSslNoVerify, true) }}:
+            # Escape hatch: re-enable cert bypass for an agent without the
+            # corporate cert in its trust store. Remove once the agent is fixed.
+            GIT_SSL_NO_VERIFY: 'true'
+          ${{ if eq(parameters.installerType, 'cpack') }}:
+            releaseArgs: '-UseVCPKG -DoNotUpdateTOOL -DisableInteractive -BuildInstaller'
+          ${{ if eq(parameters.installerType, 'none') }}:
+            releaseArgs: '-UseVCPKG -DoNotUpdateTOOL -DisableInteractive'
+          ${{ if eq(parameters.enableTests, true) }}:
+            debugArgs: '-UseVCPKG -DoNotUpdateTOOL -DisableInteractive -BuildDebug -EnableTEST'
+          ${{ if eq(parameters.enableTests, false) }}:
+            debugArgs: '-UseVCPKG -DoNotUpdateTOOL -DisableInteractive -BuildDebug'
+          ${{ if ne(parameters.additionalBuildSetup, '') }}:
+            buildSetupArgs: ' -AdditionalBuildSetup "${{ parameters.additionalBuildSetup }}"'
+          ${{ if eq(parameters.additionalBuildSetup, '') }}:
+            buildSetupArgs: ''
+        steps:
+          - task: PowerShell@2
+            displayName: 'Pre-checkout: clean stale git credentials'
+            inputs:
+              targetType: 'inline'
+              pwsh: true
+              script: |
+                $ErrorActionPreference = 'Continue'
+                Write-Host "Cleaning any stale global git extraheader config..."
+                & git config --global --unset-all http.extraheader 2>$null
+                & git config --global --unset-all http.https://dev.azure.com/.extraheader 2>$null
+                & git config --global --unset credential.useHttpPath 2>$null
+                $remaining = & git config --global --get-regexp ".*extraheader" 2>$null
+                if ($remaining) {
+                    Write-Host "WARNING: extraheader entries remain:"
+                    Write-Host $remaining
+                } else {
+                    Write-Host "Global git config is clean"
+                }
+                exit 0
+
+          - checkout: self
+            submodules: 'recursive'
+            persistCredentials: false
+            fetchDepth: 1
+            lfs: true
+
+          - task: PowerShell@2
+            displayName: 'Configure git credentials for vcpkg/Azure DevOps'
+            inputs:
+              targetType: 'inline'
+              pwsh: true
+              script: |
+                $ErrorActionPreference = 'Stop'
+                # vcpkg's git invocations run in a separate process tree; they need
+                # the PAT exposed via a global git extraheader. Cleaned up at job end.
+                $pat = "$(System.AccessToken)"
+                $basicAuth = [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("PAT:$pat"))
+                git config --global http.https://dev.azure.com/.extraheader "AUTHORIZATION: basic $basicAuth"
+                git config --global credential.useHttpPath true
+                Write-Host "Git credentials configured globally for vcpkg operations"
+
+          - ${{ if ne(parameters.versionHeaderPath, '') }}:
+              - task: PowerShell@2
+                displayName: 'Generate version header'
+                inputs:
+                  targetType: 'inline'
+                  pwsh: true
+                  script: |
+                    $ErrorActionPreference = 'Stop'
+                    $version = "$(Build.Repository.Name)_$(Build.SourceBranchName)_v.$(ShortHash).$(Build.BuildNumber)"
+                    Write-Host "##vso[task.setvariable variable=buildVersion]$version"
+                    Write-Host "Generated version: $version"
+                    $headerContent = "#ifndef VERSION_STR_H`n#define VERSION_STR_H`n`n#define VERSION_STRING ""$version""`n`n#endif // VERSION_STR_H`n"
+                    Set-Content -Path "${{ parameters.versionHeaderPath }}" -Value $headerContent -Encoding UTF8
+
+          - ${{ if eq(parameters.enableOrt, true) }}:
+              # With a pre-provisioned, externally-managed vcpkg registry pass
+              # ortExtraArguments '-EnableCustomVCPKGRegistry -DoNotUpdateVCPKG':
+              # the registry `git pull` is authenticated as the project-scoped
+              # build identity and fails cross-project (TF401019) under
+              # enforceJobAuthScope, and the agent already maintains the registry.
+              - ${{ if eq(length(parameters.ortProjectFeatures), 0) }}:
+                  - task: PowerShell@2
+                    displayName: 'License/compliance: ORT report'
+                    inputs:
+                      filePath: '$(System.DefaultWorkingDirectory)/${{ parameters.ccmPath }}/build-ort.ps1'
+                      arguments: '-DoNotUpdateTOOL -DisableInteractive ${{ parameters.ortExtraArguments }}'
+                      pwsh: true
+                    env:
+                      GIT_LFS_SKIP_SMUDGE: '1'
+              - ${{ each ortFeature in parameters.ortProjectFeatures }}:
+                  - task: PowerShell@2
+                    displayName: 'License/compliance: ORT report (${{ ortFeature }})'
+                    inputs:
+                      filePath: '$(System.DefaultWorkingDirectory)/${{ parameters.ccmPath }}/build-ort.ps1'
+                      arguments: '-DoNotUpdateTOOL -DisableInteractive ${{ parameters.ortExtraArguments }} -ProjectFeatures "${{ ortFeature }}"'
+                      pwsh: true
+                    env:
+                      GIT_LFS_SKIP_SMUDGE: '1'
+                  - task: PowerShell@2
+                    displayName: 'Tag ORT report with feature (${{ ortFeature }})'
+                    inputs:
+                      targetType: 'inline'
+                      pwsh: true
+                      script: |
+                        $ErrorActionPreference = 'Stop'
+                        # build-ort.ps1 always emits the same output names; stamp the
+                        # feature into them so per-feature runs don't overwrite each other.
+                        Rename-Item -Path '$(System.DefaultWorkingDirectory)/AsciiDoc_disclosure_document.pdf' -NewName '$(Build.Repository.Name)_disclosure_document_${{ ortFeature }}.pdf'
+                        Rename-Item -Path '$(System.DefaultWorkingDirectory)/scan-report-web-app.html' -NewName '$(Build.Repository.Name)_disclosure_document_${{ ortFeature }}.html'
+              - task: CopyFiles@2
+                displayName: 'Stage ORT reports'
+                condition: succeededOrFailed()
+                inputs:
+                  # build-ort.ps1 emits the PDF and WebApp reports into the
+                  # project root; stage them away from the installer artifacts.
+                  contents: |
+                    $(System.DefaultWorkingDirectory)/*.pdf
+                    $(System.DefaultWorkingDirectory)/*.html
+                  targetFolder: $(Agent.TempDirectory)/ort-reports
+                  flattenFolders: true
+              - task: PublishBuildArtifacts@1
+                displayName: 'Publish ORT reports'
+                condition: succeededOrFailed()
+                inputs:
+                  pathToPublish: $(Agent.TempDirectory)/ort-reports
+                  artifactName: $(Build.Repository.Name)_ort_report
+
+          - ${{ if or(eq(parameters.enableTests, true), eq(parameters.enableDebugBuild, true)) }}:
+              - task: PowerShell@2
+                displayName: 'Build Debug'
+                inputs:
+                  filePath: '$(System.DefaultWorkingDirectory)/${{ parameters.ccmPath }}/build.ps1'
+                  arguments: '$(debugArgs)$(buildSetupArgs)'
+                  pwsh: true
+                env:
+                  GIT_LFS_SKIP_SMUDGE: '1'
+          - ${{ if eq(parameters.enableTests, true) }}:
+              - task: PowerShell@2
+                displayName: 'Run ctest (fail immediately on error)'
+                inputs:
+                  targetType: 'inline'
+                  pwsh: true
+                  script: |
+                    $ErrorActionPreference = 'Stop'
+                    # CCM convention: debug builds always land in build_debug,
+                    # independent of the release `buildDir` parameter below.
+                    Write-Host "Starting ctest"
+                    & ctest --verbose --output-on-failure --test-dir $(System.DefaultWorkingDirectory)/build_debug --output-junit test-unit.xml --parallel 1
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Host "##vso[task.logissue type=error]ctest failed with exit code $LASTEXITCODE"
+                        exit $LASTEXITCODE
+                    }
+              - task: PublishTestResults@2
+                displayName: 'Publish test results'
+                condition: always()
+                inputs:
+                  testResultsFormat: 'JUnit'
+                  # Named, not 'test-*.xml': that pattern is format-blind, and it
+                  # collected any file a pytest plugin happened to call
+                  # test-something.xml and handed it to a JUnit parser. These are the
+                  # two reports CCM defines -- pytest's (ci-checks.ps1 passes
+                  # --junitxml=test-unit.xml) and the frontend runner's. Still
+                  # recursive, because a JS reporter resolves its output path relative
+                  # to the frontend directory, not the repo root.
+                  testResultsFiles: |
+                    **/test-unit.xml
+                    **/test-frontend.xml
+                  failTaskOnFailedTests: true
+
+          - task: PowerShell@2
+            displayName: 'Build Release'
+            inputs:
+              filePath: '$(System.DefaultWorkingDirectory)/${{ parameters.ccmPath }}/build.ps1'
+              arguments: '$(releaseArgs)$(buildSetupArgs)'
+              pwsh: true
+            env:
+              GIT_LFS_SKIP_SMUDGE: '1'
+
+          - ${{ if eq(parameters.installerType, 'cpack') }}:
+              - task: CopyFiles@2
+                displayName: 'Stage installer'
+                inputs:
+                  # `contents` is resolved at compile time per platform / override.
+                  # The multi-line linux value is written directly as a task input
+                  # (CopyFiles natively accepts newline-delimited globs) rather than
+                  # routed through a pipeline variable, which can collapse newlines.
+                  ${{ if ne(parameters.installerGlob, '') }}:
+                    contents: ${{ parameters.installerGlob }}
+                  ${{ if and(eq(parameters.installerGlob, ''), eq(platform, 'windows')) }}:
+                    contents: '$(System.DefaultWorkingDirectory)/${{ parameters.buildDir }}/$(Build.Repository.Name)*.msi'
+                  ${{ if and(eq(parameters.installerGlob, ''), eq(platform, 'linux')) }}:
+                    contents: |
+                      $(System.DefaultWorkingDirectory)/${{ parameters.buildDir }}/$(Build.Repository.Name)*.deb
+                      $(System.DefaultWorkingDirectory)/${{ parameters.buildDir }}/$(Build.Repository.Name)*.rpm
+                  targetFolder: $(Build.ArtifactStagingDirectory)
+                  flattenFolders: true
+
+          # ── Project-specific extra steps (NSIS, WIX UI ext, multi-variant, docs). ──
+          - ${{ parameters.extraSteps }}
+
+          - ${{ if eq(parameters.installerType, 'cpack') }}:
+              - task: PublishBuildArtifacts@1
+                displayName: 'Publish artifacts'
+                inputs:
+                  pathToPublish: $(Build.ArtifactStagingDirectory)
+                  artifactName: $(Build.Repository.Name)_installers
+
+          - task: PowerShell@2
+            displayName: 'Cleanup: remove global git credentials'
+            condition: always()
+            inputs:
+              targetType: 'inline'
+              pwsh: true
+              script: |
+                $ErrorActionPreference = 'Continue'
+                Write-Host "Cleaning up global git config..."
+                & git config --global --unset-all http.https://dev.azure.com/.extraheader 2>$null
+                & git config --global --unset credential.useHttpPath 2>$null
+                Write-Host "Global git credentials removed"
+                exit 0

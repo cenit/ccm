@@ -62,14 +62,8 @@ $open_fw_exe_version = "0.0.1"
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
-$LogPath = switch ( $IsInGitSubmodule ) {
-  $true { "$PSScriptRoot/../open-fw-exe.log" }
-  $false { "$PSScriptRoot/open-fw-exe.log" }
-}
-Start-Transcript -Path $LogPath
+$ccmLog = Initialize-CcmLogging
+trap { Stop-CcmLogging $ccmLog; break }
 
 Write-Host "Open Firewall for executables script version ${open_fw_exe_version}, utils module version ${utils_psm1_version}"
 
@@ -108,6 +102,4 @@ else {
   Write-Host "Firewall rule created for $FirewallRuleName" -ForegroundColor Green
 }
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
+Stop-CcmLogging $ccmLog

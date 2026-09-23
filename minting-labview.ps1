@@ -122,17 +122,15 @@ else {
   $IsInGitSubmodule = $false
 }
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
 if($IsInGitSubmodule) {
   $PSCustomScriptRoot = Split-Path $PSScriptRoot -Parent
 }
 else {
   $PSCustomScriptRoot = $PSScriptRoot
 }
-$LogPath = "$PSCustomScriptRoot/minting-labview.log"
-Start-Transcript -Path $LogPath
+
+$ccmLog = Initialize-CcmLogging
+trap { Stop-CcmLogging $ccmLog; break }
 
 Write-Host "Minting script version ${minting_labview_version}, utils module version ${utils_psm1_version}"
 if (-Not $utils_psm1_avail) {
@@ -1607,6 +1605,4 @@ else {
   Write-Host "A reboot might be mandatory for many functionalities to be alive!" -ForegroundColor Red
 }
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
+Stop-CcmLogging $ccmLog

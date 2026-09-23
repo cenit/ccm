@@ -51,21 +51,18 @@ $script_name = $MyInvocation.MyCommand.Name
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
 if($IsInGitSubmodule) {
   $PSCustomScriptRoot = Split-Path $PSScriptRoot -Parent
 }
 else {
   $PSCustomScriptRoot = $PSScriptRoot
 }
-$CleanLogPath = "$PSCustomScriptRoot/clean.log"
 
-Start-Transcript -Path $CleanLogPath
+$ccmLog = Initialize-CcmLogging
+trap { Stop-CcmLogging $ccmLog; break }
 
 Write-Host "Clean script version ${clean_ps1_version}, utils module version ${utils_psm1_version}"
-Write-Host "Working directory: $PSCustomScriptRoot, log file: $CleanLogPath, $script_name is in submodule: $IsInGitSubmodule"
+Write-Host "Working directory: $PSCustomScriptRoot, log file: $($ccmLog.LogPath), $script_name is in submodule: $IsInGitSubmodule"
 
 Remove-Item -Force -ErrorAction SilentlyContinue $PSCustomScriptRoot/bin/*.exe
 Remove-Item -Force -ErrorAction SilentlyContinue $PSCustomScriptRoot/bin/*.conf
@@ -81,6 +78,4 @@ Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $PSCustomScriptRoot/de
 Remove-Item -Force -ErrorAction SilentlyContinue $PSCustomScriptRoot/*.exe
 Remove-Item -Force -ErrorAction SilentlyContinue $PSCustomScriptRoot/*.dll
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
+Stop-CcmLogging $ccmLog
