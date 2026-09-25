@@ -57,10 +57,8 @@ $deploy_templates_ps1_version = "1.0.6"
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
-Start-Transcript -Path "$PSScriptRoot/../deploy-templates.log"
+$ccmLog = Initialize-CcmLogging
+trap { Stop-CcmLogging $ccmLog; break }
 
 Write-Host "Deploy-Templates script version ${deploy_templates_ps1_version}, utils module version ${utils_psm1_version}"
 
@@ -111,6 +109,4 @@ else {
   }
 }
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
+Stop-CcmLogging $ccmLog

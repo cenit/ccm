@@ -6,7 +6,7 @@ This document will guide you to install and setup vcpkg
 
 ### vcpkg
 
-Follow the instructions on the `setup_eng.md` file to prepare basic tools for your system, preliminary to installing VCPKG.
+Follow the instructions on the `setup_cpp.md` file to prepare basic tools for your system, preliminary to installing VCPKG.
 
 Open PowerShell and run these commands to install vcpkg:
 
@@ -52,19 +52,19 @@ If the NuGet version is > 6.12 proceed with option A, otherwise with option B
 notepad $env:AppData\NuGet\NuGet.Config
 ```
 
-Dentro al file `NuGet.Config` modificare la riga
+In the `NuGet.Config` file, change the line
 
 ```pwsh
     <add key="vcpkgbinarycache" value="http://93.49.111.10:5555/v3/index.json" />
 ```
 
-aggiungendo il tag `allowInsecureConnections="true"` in questo modo:
+adding the `allowInsecureConnections="true"` attribute, like this:
 
 ```pwsh
     <add key="vcpkgbinarycache" value="http://93.49.111.10:5555/v3/index.json" allowInsecureConnections="true" />
 ```
 
-#### Aggiunta API key per push su repository
+#### Adding the API key to push to the repository
 
 ```pwsh
 .\nuget.exe setapikey REDACTED -Source http://93.49.111.10:5555/v3/index.json

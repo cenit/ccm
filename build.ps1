@@ -44,6 +44,9 @@ Enable VTK feature
 .PARAMETER EnablePCL
 Enable PCL feature
 
+.PARAMETER EnableADS
+Enable ADS feature
+
 .PARAMETER EnableTEST
 Enable TEST feature
 
@@ -55,6 +58,18 @@ Force a specific Qt version
 
 .PARAMETER StopAfterDebugBuild
 Stop the script after building the debug version, useful for debugging
+
+.PARAMETER EnableCXSDKIntegration
+Enable CX (LMI 3D) SDK integration
+
+.PARAMETER EnableHalconSDKIntegration
+Enable Halcon SDK integration
+
+.PARAMETER EnableGOSDKIntegration
+Enable GO (Gocator) SDK integration
+
+.PARAMETER EnablePhoXiSDKIntegration
+Enable PhoXi (Photoneo) SDK integration
 
 .PARAMETER BuildDocumentation
 Build documentation using Doxygen
@@ -178,7 +193,12 @@ param (
   [switch]$EnableOPENMP = $false,
   [switch]$EnableVTK = $false,
   [switch]$EnablePCL = $false,
+  [switch]$EnableADS = $false,
   [switch]$EnableTEST = $false,
+  [switch]$EnableCXSDKIntegration = $false,
+  [switch]$EnableHalconSDKIntegration = $false,
+  [switch]$EnableGOSDKIntegration = $false,
+  [switch]$EnablePhoXiSDKIntegration = $false,
   [switch]$EnableQT = $false,
   [Int32]$ForceQTVersion = 0,
   [switch]$StopAfterDebugBuild = $false,
@@ -252,16 +272,12 @@ if (-Not $utils_psm1_avail) {
   $ForceCMakeFromVS = $false
 }
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
 if($IsInGitSubmodule) {
   $PSCustomScriptRoot = Split-Path $PSScriptRoot -Parent
 }
 else {
   $PSCustomScriptRoot = $PSScriptRoot
 }
-$BuildLogPath = "$PSCustomScriptRoot/build.log"
 $ReleaseInstallPrefix = "$PSCustomScriptRoot"
 $DebugInstallPrefix = "$PSCustomScriptRoot/debug"
 $DebugBuildSetup = " -DCMAKE_BUILD_TYPE=Debug "
@@ -271,13 +287,14 @@ if (-Not $BuildInstaller) {
   $ReleaseBuildSetup = $ReleaseBuildSetup + " -DCMAKE_INSTALL_PREFIX=$ReleaseInstallPrefix "
 }
 
-Start-Transcript -Path $BuildLogPath
+$ccmLog = Initialize-CcmLogging
+trap { Stop-CcmLogging $ccmLog; break }
 
 Write-Host "Build script version ${build_ps1_version}, utils module version ${utils_psm1_version}"
 if (-Not $utils_psm1_avail) {
   Write-Host "utils.psm1 is not available, so VS integration is forcefully disabled" -ForegroundColor Yellow
 }
-Write-Host "Working directory: $PSCustomScriptRoot, log file: $BuildLogPath, $script_name is in submodule: $IsInGitSubmodule"
+Write-Host "Working directory: $PSCustomScriptRoot, log file: $($ccmLog.LogPath), $script_name is in submodule: $IsInGitSubmodule"
 
 if ((-Not $global:DisableInteractive) -and (-Not $UseVCPKG)) {
   $Result = Read-Host "Enable vcpkg to install dependencies (yes/no)"
@@ -397,15 +414,13 @@ if ($IsMacOS -and (-Not $env:VCPKG_DEFAULT_HOST_TRIPLET)) {
 }
 
 if ($IsLinux -and (-Not $env:VCPKG_DEFAULT_TRIPLET)) {
-  if ($true) {
-    if ($BuildDebug) {
-      $env:VCPKG_DEFAULT_TRIPLET = "${vcpkgArchitecture}-linux"
-      $vcpkg_triplet_set_by_this_script = $true
-    }
-    else {
-      $env:VCPKG_DEFAULT_TRIPLET = "${vcpkgArchitecture}-linux-release"
-      $vcpkg_triplet_set_by_this_script = $true
-    }
+  if ($BuildDebug) {
+    $env:VCPKG_DEFAULT_TRIPLET = "${vcpkgArchitecture}-linux"
+    $vcpkg_triplet_set_by_this_script = $true
+  }
+  else {
+    $env:VCPKG_DEFAULT_TRIPLET = "${vcpkgArchitecture}-linux-release"
+    $vcpkg_triplet_set_by_this_script = $true
   }
 }
 if ($IsLinux -and (-Not $env:VCPKG_DEFAULT_HOST_TRIPLET)) {
@@ -904,6 +919,10 @@ if ($EnablePCL) {
   $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_PCL=ON"
 }
 
+if ($EnableADS) {
+  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_ADS=ON"
+}
+
 if ($EnableTEST) {
   $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_TEST=ON"
 }
@@ -930,6 +949,43 @@ if (($ForceQTVersion -eq 6) -and $UseVCPKG) {
 if ($BuildDocumentation) {
   Write-Host "Building documentation"
   $AdditionalBuildSetup = $AdditionalBuildSetup + " -DBUILD_DOCUMENTATION=ON "
+}
+
+if ($EnableCXSDKIntegration) {
+  if (-Not (Test-Path "${env:CX_SDK_ROOT_64}")) {
+    MyThrow("The tool requires cxSDK!")
+  }
+
+  if (-Not (Test-Path "${env:CVB}")) {
+    MyThrow("The tool requires Stemmer Imaging Common Vision Blox!")
+  }
+}
+
+if ($EnableGOSDKIntegration) {
+  if (-Not (Test-Path "${env:GO_SDK_4}")) {
+    if (-Not (Test-Path "$PSCustomScriptRoot/../GO_SDK")) {
+      MyThrow("GO SDK integration requires GO_SDK_4 or a ../GO_SDK folder!")
+    }
+    else {
+      $GOSDKPATH = "$PSCustomScriptRoot/../GO_SDK/bin"
+    }
+  }
+  else {
+    $GOSDKPATH = "${env:GO_SDK_4}/bin/win64"
+  }
+}
+
+if ($EnableHalconSDKIntegration) {
+  if (-Not (Test-Path "${env:HALCONROOT}")) {
+    MyThrow("Halcon integration requires HALCONROOT!")
+  }
+  $AdditionalBuildSetup = $AdditionalBuildSetup + " -DENABLE_HALCON=ON"
+}
+
+if ($EnablePhoXiSDKIntegration) {
+  if (-Not (Test-Path "${env:PHOXI_CONTROL_PATH}")) {
+    MyThrow("The tool requires PhoXiSDK!")
+  }
 }
 
 if($UseVCPKG) {
@@ -1015,6 +1071,65 @@ if (-Not $StopAfterDebugBuild) {
   if (-Not ($exitCode -eq 0)) {
     MyThrow("Build failed! Exited with error code $exitCode.")
   }
+}
+
+if ($EnablePhoXiSDKIntegration -and -Not $DisableDLLcopy) {
+  if($BuildDebug) {
+    $dllfiles = Get-ChildItem "${env:PHOXI_CONTROL_PATH}/API/bin/PhoXi_API_msvc14_Debug_*.dll"
+    if ($dllfiles) {
+      Copy-Item $dllfiles $DebugInstallPrefix/bin
+    }
+  }
+  $dllfiles = Get-ChildItem "${env:PHOXI_CONTROL_PATH}/API/bin/PhoXi_API_msvc14_Release_*.dll"
+  if ($dllfiles) {
+    Copy-Item $dllfiles $ReleaseInstallPrefix/bin
+  }
+}
+
+if ($EnableGOSDKIntegration -and -Not $DisableDLLcopy) {
+  if($BuildDebug) {
+    Copy-Item "${GOSDKPATH}/GoSdkd.dll" $DebugInstallPrefix/bin
+    Copy-Item "${GOSDKPATH}/kApid.dll"  $DebugInstallPrefix/bin
+  }
+  Copy-Item "${GOSDKPATH}/GoSdk.dll" $ReleaseInstallPrefix/bin
+  Copy-Item "${GOSDKPATH}/kApi.dll"  $ReleaseInstallPrefix/bin
+}
+
+if ($EnableCXSDKIntegration -and -Not $DisableDLLcopy) {
+  if (-Not $UseVCPKG) {
+    $dllfolder = "${env:CX_SDK_ROOT_64}/bin"
+    #$dllfolder = "${env:CX_SDK_ROOT_64}/ThirdParty/opencv-3.4.2/build_win_vc140_64_shared_vtk_static/x64/vc14/bin"
+    $dllfiles = Get-ChildItem ${dllfolder}/opencv_*342.dll
+    if ($dllfiles) {
+      if ($BuildDebug) {
+        Copy-Item $dllfiles $DebugInstallPrefix/bin
+      }
+      Copy-Item $dllfiles $ReleaseInstallPrefix/bin
+    }
+  }
+
+  if($BuildDebug) {
+    Copy-Item "${env:CX_SDK_ROOT_64}/bin/Cx3dLib_2_2.dll"                  $DebugInstallPrefix/bin
+    Copy-Item "${env:CX_SDK_ROOT_64}/bin/CxBaseLib_2_3.dll"                $DebugInstallPrefix/bin
+    Copy-Item "${env:CX_SDK_ROOT_64}/bin/CxCamLib_2_5.dll"                 $DebugInstallPrefix/bin
+    Copy-Item "${env:CX_SDK_ROOT_64}/bin/GenApi_MD_VC120_v3_1.dll"         $DebugInstallPrefix/bin
+    Copy-Item "${env:CX_SDK_ROOT_64}/bin/GCBase_MD_VC120_v3_1.dll"         $DebugInstallPrefix/bin
+    Copy-Item "${env:CX_SDK_ROOT_64}/bin/Log_MD_VC120_v3_1.dll"            $DebugInstallPrefix/bin
+    Copy-Item "${env:CX_SDK_ROOT_64}/bin/NodeMapData_MD_VC120_v3_1.dll"    $DebugInstallPrefix/bin
+    Copy-Item "${env:CX_SDK_ROOT_64}/bin/MathParser_MD_VC120_v3_1.dll"     $DebugInstallPrefix/bin
+    Copy-Item "${env:CX_SDK_ROOT_64}/bin/XmlParser_MD_VC120_v3_1.dll"      $DebugInstallPrefix/bin
+    Copy-Item "${env:CVB}/GenICam/bin/win64_x64/TLIs/GEVTL.cti"            $DebugInstallPrefix/bin
+  }
+  Copy-Item "${env:CX_SDK_ROOT_64}/bin/Cx3dLib_2_2.dll"                  $ReleaseInstallPrefix/bin
+  Copy-Item "${env:CX_SDK_ROOT_64}/bin/CxBaseLib_2_3.dll"                $ReleaseInstallPrefix/bin
+  Copy-Item "${env:CX_SDK_ROOT_64}/bin/CxCamLib_2_5.dll"                 $ReleaseInstallPrefix/bin
+  Copy-Item "${env:CX_SDK_ROOT_64}/bin/GenApi_MD_VC120_v3_1.dll"         $ReleaseInstallPrefix/bin
+  Copy-Item "${env:CX_SDK_ROOT_64}/bin/GCBase_MD_VC120_v3_1.dll"         $ReleaseInstallPrefix/bin
+  Copy-Item "${env:CX_SDK_ROOT_64}/bin/Log_MD_VC120_v3_1.dll"            $ReleaseInstallPrefix/bin
+  Copy-Item "${env:CX_SDK_ROOT_64}/bin/NodeMapData_MD_VC120_v3_1.dll"    $ReleaseInstallPrefix/bin
+  Copy-Item "${env:CX_SDK_ROOT_64}/bin/MathParser_MD_VC120_v3_1.dll"     $ReleaseInstallPrefix/bin
+  Copy-Item "${env:CX_SDK_ROOT_64}/bin/XmlParser_MD_VC120_v3_1.dll"      $ReleaseInstallPrefix/bin
+  Copy-Item "${env:CVB}/GenICam/bin/win64_x64/TLIs/GEVTL.cti"            $ReleaseInstallPrefix/bin
 }
 
 if ($IsWindows -and $EnableQT -and $UseVCPKG -and -Not $DisableDLLcopy) {
@@ -1114,6 +1229,4 @@ if ($vcpkg_branch_set_by_this_script) {
   Pop-Location
 }
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
+Stop-CcmLogging $ccmLog

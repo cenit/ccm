@@ -59,14 +59,8 @@ $enable_iis_version = "0.0.1"
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
-$LogPath = switch ( $IsInGitSubmodule ) {
-  $true { "$PSScriptRoot/../enable-iis.log" }
-  $false { "$PSScriptRoot/enable-iis.log" }
-}
-Start-Transcript -Path $LogPath
+$ccmLog = Initialize-CcmLogging
+trap { Stop-CcmLogging $ccmLog; break }
 
 Write-Host "Enable IIS script version ${enable_iis_version}, utils module version ${utils_psm1_version}"
 
@@ -121,6 +115,4 @@ else {
 
 Write-Host "IIS Enabled" -ForegroundColor Green
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
+Stop-CcmLogging $ccmLog

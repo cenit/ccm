@@ -1,0 +1,333 @@
+# Shared pipeline template for Claude/Codex skill repositories.
+#
+# Auto-discovers Claude/Codex skill directories (folders containing SKILL.md)
+# at the root of the consuming repo, reads the `version:` field from each
+# skill's frontmatter, validates version bumps on PRs, and publishes new
+# versions as NuGet packages named `skill-<name>` to an Azure Artifacts
+# NuGet feed (feedOrgName / feedName).
+#
+# Consumed by a skill repo via (in azure-pipelines.yml):
+#
+#   trigger:
+#     branches:
+#       include: [main, master, dev/*, release/*]
+#   pr:
+#     branches:
+#       include: [main, master, dev/*, release/*]
+#   pool:
+#     vmImage: windows-latest
+#   steps:
+#     - checkout: self
+#       submodules: recursive
+#       persistCredentials: true
+#     - template: CCM/azure-pipelines-skills.yml
+
+parameters:
+  - name: feedOrgName
+    type: string
+    default: my-org
+  - name: feedName
+    type: string
+    default: skills
+  - name: packagePrefix
+    type: string
+    default: skill-
+  - name: packageAuthors
+    type: string
+    default: Stefano Sinigardi
+  - name: publishBranches
+    type: object
+    default: [refs/heads/main, refs/heads/master]
+
+steps:
+  - task: PowerShell@2
+    displayName: Discover skills and read versions
+    name: discover
+    inputs:
+      pwsh: true
+      targetType: inline
+      script: |
+        $ErrorActionPreference = 'Stop'
+        $sourceDir = "$(Build.SourcesDirectory)"
+
+        $skillDirs = Get-ChildItem -Path $sourceDir -Directory -Force | Where-Object {
+          $_.Name -notmatch '^(\.|CCM$|docs$)' -and
+          (Test-Path (Join-Path $_.FullName 'SKILL.md'))
+        }
+        if ($skillDirs.Count -eq 0) {
+          throw "No skill directories with SKILL.md found at the repo root."
+        }
+
+        $map = @{}
+        $reqMap = @{}
+        foreach ($d in $skillDirs) {
+          $content = Get-Content -Raw (Join-Path $d.FullName 'SKILL.md')
+          if ($content -notmatch '(?ms)\A---\s*\r?\n(.*?)\r?\n---\s*\r?\n') {
+            throw "$($d.Name)/SKILL.md has no YAML frontmatter block."
+          }
+          $frontmatter = $matches[1]
+          if ($frontmatter -notmatch '(?m)^\s*version\s*:\s*([^\s#]+)\s*$') {
+            throw "$($d.Name)/SKILL.md has no 'version:' field."
+          }
+          $v = $matches[1].Trim().Trim("'").Trim('"')
+          if ($v -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
+            throw "$($d.Name)/SKILL.md has invalid semver '$v'."
+          }
+          $map[$d.Name] = $v
+
+          # Read `requires:` only AFTER $v is captured -- every -match overwrites
+          # $matches, so reading it first would destroy the version above.
+          $req = ''
+          if ($frontmatter -match '(?m)^\s*requires\s*:\s*(.+?)\s*$') {
+            $req = $matches[1].Trim().Trim("'").Trim('"')
+          }
+          $reqMap[$d.Name] = $req
+
+          if ($req) { Write-Host "Discovered: $($d.Name) @ $v  (requires: $req)" }
+          else      { Write-Host "Discovered: $($d.Name) @ $v" }
+        }
+
+        $json = $map | ConvertTo-Json -Compress
+        $list = ($map.Keys | Sort-Object) -join ','
+        $reqJson = $reqMap | ConvertTo-Json -Compress
+        Write-Host "##vso[task.setvariable variable=skillVersions;isOutput=true]$json"
+        Write-Host "##vso[task.setvariable variable=skillList;isOutput=true]$list"
+        Write-Host "##vso[task.setvariable variable=skillRequires;isOutput=true]$reqJson"
+
+  - task: PowerShell@2
+    displayName: Validate version bumps (PR only)
+    condition: eq(variables['Build.Reason'], 'PullRequest')
+    inputs:
+      pwsh: true
+      targetType: inline
+      script: |
+        $ErrorActionPreference = 'Stop'
+
+        # System.PullRequest.TargetBranch is a *full* ref (refs/heads/master), so it
+        # must be shortened before being used as origin/<branch>; without this the
+        # diffs below resolve nothing and every check passes vacuously.
+        $targetBranch = '$(System.PullRequest.TargetBranch)' -replace '^refs/heads/', ''
+        $target = "origin/$targetBranch"
+
+        # No --depth: the consuming repo checks out a full clone and a shallow fetch
+        # would truncate history, breaking `git diff <base>...HEAD` whenever the
+        # merge-base is older than the shallow boundary.
+        git fetch origin $targetBranch > $null 2>&1
+        if ($LASTEXITCODE -ne 0) {
+          throw "git fetch origin $targetBranch failed (exit $LASTEXITCODE)"
+        }
+        git rev-parse --verify "$target" > $null 2>&1
+        if ($LASTEXITCODE -ne 0) {
+          throw "Target ref '$target' not found after fetch; version-bump check cannot run."
+        }
+
+        $skills = "$(discover.skillList)" -split ',' | Where-Object { $_ }
+        $failed = @()
+
+        foreach ($skill in $skills) {
+          $changed = git diff --name-only "$target...HEAD" -- "$skill/" 2>$null
+          if (-not $changed) { continue }
+
+          $versionLine = git diff "$target...HEAD" -- "$skill/SKILL.md" 2>$null |
+            Select-String -Pattern '^[+-]\s*version\s*:'
+          if (-not $versionLine) {
+            $failed += $skill
+            Write-Host "##[error]${skill}: contents modified but version not bumped"
+          } else {
+            Write-Host "${skill}: version bump detected"
+          }
+        }
+
+        if ($failed.Count -gt 0) {
+          throw "Version bump required for: $($failed -join ', ')"
+        }
+
+  - task: PowerShell@2
+    displayName: Validate skill dependencies
+    inputs:
+      pwsh: true
+      targetType: inline
+      script: |
+        $ErrorActionPreference = 'Stop'
+        Import-Module "$(Build.SourcesDirectory)/CCM/CCM.psd1" -Force
+
+        $versions = '$(discover.skillVersions)' | ConvertFrom-Json
+        $requires = '$(discover.skillRequires)' | ConvertFrom-Json
+
+        $graph = @{}
+        foreach ($p in $versions.PSObject.Properties) {
+          $graph[$p.Name] = @{
+            Version  = $p.Value
+            Requires = [string]$requires.$($p.Name)
+          }
+        }
+
+        # Grammar, same-repo satisfiability and cycles.
+        $errors = @(Test-CcmSkillDependencyGraph -Skill $graph)
+        if ($errors.Count -gt 0) {
+          foreach ($e in $errors) { Write-Host "##[error]$e" }
+          throw "$($errors.Count) skill dependency error(s)."
+        }
+
+        # Cross-repo satisfiability: anything not in this repo must already exist
+        # on the feed at or above the declared minimum. Reuses the same token
+        # the push step uses, via a targeted per-dependency query (see below).
+        $crossRepo = @()
+        foreach ($name in $graph.Keys) {
+          foreach ($dep in @(ConvertFrom-CcmSkillRequirement -Requirement $graph[$name].Requires)) {
+            if (-not $graph.ContainsKey($dep.SkillName)) { $crossRepo += [pscustomobject]@{ From = $name; Dep = $dep } }
+          }
+        }
+
+        if ($crossRepo.Count -gt 0) {
+          $headers = @{ Authorization = "Bearer $(System.AccessToken)" }
+
+          # Targeted query per unique cross-repo dependency, NOT the
+          # list-everything call the push step below uses. That call has no
+          # $top/$skip and the Azure Artifacts endpoint paginates -- fine for
+          # the push step, whose failure mode is "assume not pushed, try
+          # anyway" with -SkipDuplicate, but here a missing entry throws and
+          # fails the build. $crossRepo is small, so a query per unique
+          # dependency is cheap and removes the pagination question entirely.
+          $feed = @{}
+          $uniquePkgIds = @($crossRepo | ForEach-Object { ('${{ parameters.packagePrefix }}' + $_.Dep.SkillName).ToLower() } | Sort-Object -Unique)
+          foreach ($pkgId in $uniquePkgIds) {
+            $queryUrl = "https://feeds.dev.azure.com/${{ parameters.feedOrgName }}/_apis/packaging/Feeds/${{ parameters.feedName }}/packages?packageNameQuery=$pkgId&api-version=7.1-preview.1&protocolType=NuGet"
+            $resp = Invoke-RestMethod -Uri $queryUrl -Headers $headers -Method Get
+            $match = $resp.value | Where-Object { $_.name.ToLower() -eq $pkgId } | Select-Object -First 1
+            if ($match) {
+              $feed[$pkgId] = @($match.versions | Where-Object { -not $_.isDeleted } | ForEach-Object { $_.version })
+            }
+          }
+
+          $missing = @()
+          foreach ($item in $crossRepo) {
+            $pkgId = ('${{ parameters.packagePrefix }}' + $item.Dep.SkillName).ToLower()
+            $need  = [version]($item.Dep.MinVersion -replace '-.*$','')
+            $ok = $feed.ContainsKey($pkgId) -and
+                  @($feed[$pkgId] | Where-Object { [version]($_ -replace '-.*$','') -ge $need }).Count -gt 0
+            if (-not $ok) {
+              $missing += "$($item.From): requires $($item.Dep.SkillName)>=$($item.Dep.MinVersion), which is not satisfiable on feed '${{ parameters.feedName }}'"
+            }
+          }
+
+          if ($missing.Count -gt 0) {
+            foreach ($m in $missing) { Write-Host "##[error]$m" }
+            throw "$($missing.Count) unsatisfiable cross-repo dependency(ies)."
+          }
+        }
+
+        Write-Host "Skill dependencies validated."
+
+  - task: NuGetToolInstaller@1
+    displayName: Install NuGet CLI
+
+  - task: PowerShell@2
+    displayName: Pack skills (skill-<name>.<version>.nupkg)
+    name: pack
+    inputs:
+      pwsh: true
+      targetType: inline
+      script: |
+        $ErrorActionPreference = 'Stop'
+        $sourceDir = "$(Build.SourcesDirectory)"
+        $stage = "$(Build.ArtifactStagingDirectory)\nupkgs"
+        if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+        New-Item -ItemType Directory -Path $stage -Force | Out-Null
+
+        $versions = '$(discover.skillVersions)' | ConvertFrom-Json
+        $requires = '$(discover.skillRequires)' | ConvertFrom-Json
+        Import-Module "$(Build.SourcesDirectory)/CCM/CCM.psd1" -Force
+
+        foreach ($prop in $versions.PSObject.Properties) {
+          $skill   = $prop.Name
+          $version = $prop.Value
+          $pkgId   = '${{ parameters.packagePrefix }}' + $skill
+          $skillDir = Join-Path $sourceDir $skill
+
+          # Read description from SKILL.md frontmatter for the nuspec
+          $content = Get-Content -Raw (Join-Path $skillDir 'SKILL.md')
+          $null = $content -match '(?ms)\A---\s*\r?\n(.*?)\r?\n---\s*\r?\n'
+          $fm = $matches[1]
+          $desc = if ($fm -match '(?m)^\s*description\s*:\s*(.+)$') {
+            $matches[1].Trim().Trim("'").Trim('"')
+          } else { "Claude/Codex skill: $skill" }
+
+          $deps = @(ConvertFrom-CcmSkillRequirement -Requirement ([string]$requires.$skill))
+          $depObjects = @($deps | ForEach-Object {
+            [pscustomobject]@{ Id = '${{ parameters.packagePrefix }}' + $_.SkillName; MinVersion = $_.MinVersion }
+          })
+
+          $nuspecLines = New-CcmSkillNuspecContent -PackageId $pkgId -Version $version `
+            -Description $desc -SkillDirectory $skillDir -ContentTarget "content\$skill" `
+            -Dependency $depObjects -Authors '${{ parameters.packageAuthors }}'
+
+          $nuspecPath = Join-Path $stage "$pkgId.nuspec"
+          Set-Content -Path $nuspecPath -Value $nuspecLines -Encoding UTF8
+          Write-Host "Packing $pkgId@$version"
+          nuget pack $nuspecPath -OutputDirectory $stage -NoPackageAnalysis
+          if ($LASTEXITCODE -ne 0) {
+            throw "nuget pack failed for $pkgId@$version"
+          }
+        }
+
+        $produced = Get-ChildItem -Path $stage -Filter '*.nupkg' | Select-Object -ExpandProperty Name
+        Write-Host "Produced packages:`n$($produced -join "`n")"
+
+  - task: NuGetAuthenticate@1
+    displayName: Authenticate to the skills feed
+    condition: in(variables['Build.SourceBranch'], 'refs/heads/main', 'refs/heads/master')
+    inputs:
+      forceReinstallCredentialProvider: true
+
+  - task: PowerShell@2
+    displayName: Push new packages (skip versions already on feed)
+    condition: in(variables['Build.SourceBranch'], 'refs/heads/main', 'refs/heads/master')
+    inputs:
+      pwsh: true
+      targetType: inline
+      script: |
+        $ErrorActionPreference = 'Stop'
+
+        $feedUrl = "https://pkgs.dev.azure.com/${{ parameters.feedOrgName }}/_packaging/${{ parameters.feedName }}/nuget/v3/index.json"
+        $listUrl = "https://feeds.dev.azure.com/${{ parameters.feedOrgName }}/_apis/packaging/Feeds/${{ parameters.feedName }}/packages?api-version=7.1-preview.1&protocolType=NuGet"
+        $headers = @{ Authorization = "Bearer $(System.AccessToken)" }
+
+        $existing = @{}
+        try {
+          $resp = Invoke-RestMethod -Uri $listUrl -Headers $headers -Method Get
+          foreach ($p in $resp.value) {
+            $versionsForP = @($p.versions | Where-Object { -not $_.isDeleted } | ForEach-Object { $_.version })
+            $existing[$p.name.ToLower()] = $versionsForP
+          }
+        } catch {
+          Write-Warning "Could not enumerate existing packages on feed: $_. Will attempt push and let NuGet reject duplicates."
+        }
+
+        $stage = "$(Build.ArtifactStagingDirectory)\nupkgs"
+        $pkgs  = Get-ChildItem -Path $stage -Filter '*.nupkg'
+        foreach ($pkg in $pkgs) {
+          if ($pkg.Name -notmatch '^(.+?)\.(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\.nupkg$') {
+            Write-Warning "Could not parse package name/version from $($pkg.Name); pushing anyway."
+          } else {
+            $id  = $matches[1].ToLower()
+            $ver = $matches[2]
+            if ($existing.ContainsKey($id) -and $existing[$id] -contains $ver) {
+              Write-Host "$id@$ver already on feed; skipping."
+              continue
+            }
+          }
+          Write-Host "Pushing $($pkg.Name)"
+          nuget push $pkg.FullName -Source $feedUrl -ApiKey AzureDevOps -SkipDuplicate
+          if ($LASTEXITCODE -ne 0) {
+            throw "nuget push failed for $($pkg.Name)"
+          }
+        }
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish staging nupkgs (build inspection)
+    condition: always()
+    inputs:
+      targetPath: $(Build.ArtifactStagingDirectory)/nupkgs
+      artifact: nupkgs
+      publishLocation: pipeline

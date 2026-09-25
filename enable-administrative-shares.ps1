@@ -54,14 +54,8 @@ $enable_administrative_shares_version = "0.0.1"
 
 Import-Module -Name $PSScriptRoot/utils.psm1 -Force
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
-$LogPath = switch ( $IsInGitSubmodule ) {
-  $true { "$PSScriptRoot/../enable-administrative-shares.log" }
-  $false { "$PSScriptRoot/enable-administrative-shares.log" }
-}
-Start-Transcript -Path $LogPath
+$ccmLog = Initialize-CcmLogging
+trap { Stop-CcmLogging $ccmLog; break }
 
 Write-Host "Enable administrative shares script version ${enable_administrative_shares_version}, utils module version ${utils_psm1_version}"
 
@@ -97,6 +91,4 @@ else {
 
 Write-Host "Administrative shares (C$) enabled" -ForegroundColor Green
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
+Stop-CcmLogging $ccmLog

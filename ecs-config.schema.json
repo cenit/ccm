@@ -1,0 +1,608 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/cenit/ccm/master/ecs-config.schema.json",
+  "title": "ECS Deployment Configuration",
+  "description": "Configuration file for AWS ECS deployment scripts (setup-aws-infrastructure.ps1 and deploy-ecs.ps1). Place as ecs-config.json in the project root. CLI parameters always take precedence over values defined here.",
+  "type": "object",
+  "required": ["ProjectName"],
+  "properties": {
+    "_comment": {
+      "type": "string",
+      "description": "Human-readable comment describing this configuration file."
+    },
+
+    "_comment_expose": {
+      "type": "string",
+      "description": "Human-readable comment for the ExposeContainerPorts section."
+    },
+
+    "_comment_ci": {
+      "type": "string",
+      "description": "Human-readable comment for the ci block (e.g. per-CVE pip-audit ignore rationale)."
+    },
+
+    "_comment_preview": {
+      "type": "string",
+      "description": "Human-readable comment for the PreviewEnvironments block."
+    },
+
+    "ProjectName": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Base name for all AWS resources. Used to derive cluster, service, ALB, ECR repo, IAM roles, and log group names (e.g. 'my-app' → 'my-app-cluster', 'my-app-service'). Required by both setup-aws-infrastructure.ps1 and deploy-ecs.ps1.",
+      "examples": ["my-project", "my-app"]
+    },
+
+    "AwsRegion": {
+      "type": "string",
+      "default": "eu-central-1",
+      "pattern": "^[a-z]{2}-[a-z]+-\\d+$",
+      "description": "AWS region for deployment.",
+      "examples": ["eu-central-1", "us-east-1", "ap-southeast-1"]
+    },
+
+    "VpcId": {
+      "type": "string",
+      "pattern": "^vpc-[0-9a-f]+$",
+      "description": "VPC ID where resources will be created. Required by setup-aws-infrastructure.ps1.",
+      "examples": ["vpc-0123456789abcdef0"]
+    },
+
+    "SubnetIds": {
+      "type": "string",
+      "pattern": "^subnet-[0-9a-f]+(,subnet-[0-9a-f]+)*$",
+      "description": "Comma-separated list of subnet IDs for ALB and ECS tasks. Required by setup-aws-infrastructure.ps1.",
+      "examples": ["subnet-111aaa,subnet-222bbb,subnet-333ccc"]
+    },
+
+    "VpnCidr": {
+      "type": "string",
+      "default": "10.0.0.0/8",
+      "description": "Comma-separated list of CIDR blocks allowed to reach the ALB. Each CIDR gets its own ingress rule on ports 80 and 443. Used by setup-aws-infrastructure.ps1.",
+      "examples": ["10.0.0.0/8", "10.0.0.0/8,172.31.0.0/16"]
+    },
+
+    "ContainerPort": {
+      "type": "integer",
+      "default": 8000,
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port exposed by the application container. Used by both scripts.",
+      "examples": [8000, 3000, 80, 443]
+    },
+
+    "HealthCheckPath": {
+      "type": "string",
+      "default": "/health",
+      "pattern": "^/",
+      "description": "Health check endpoint path for the ALB target group. Used by both scripts.",
+      "examples": ["/health", "/api/health", "/healthz"]
+    },
+
+    "HealthCheckGracePeriodSeconds": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "ECS service health-check grace period (seconds) before ELB health checks can mark a task unhealthy. Applied by deploy-ecs.ps1 on both create-service and update-service (single source of truth, never drifts). When omitted, create uses 180 and update leaves the existing value untouched. Raise it for slow-starting tasks (e.g. sidecars with long startPeriods) to avoid deploys flapping.",
+      "examples": [180, 300, 600]
+    },
+
+    "SecretsPrefix": {
+      "type": "string",
+      "description": "Prefix for secrets stored in AWS Secrets Manager. Defaults to ProjectName if not specified. Used by both scripts.",
+      "examples": ["dev/my-project", "prod/my-app"]
+    },
+
+    "CertificateArn": {
+      "type": "string",
+      "description": "ACM certificate ARN for HTTPS on the ALB. Leave empty for HTTP-only. Used by setup-aws-infrastructure.ps1.",
+      "examples": ["arn:aws:acm:eu-central-1:123456789012:certificate/abcd-1234"]
+    },
+
+    "DesiredCount": {
+      "type": "integer",
+      "default": 1,
+      "minimum": 0,
+      "description": "Number of ECS task instances when creating a new service. Only used during initial service creation; ignored for service updates. Used by deploy-ecs.ps1.",
+      "examples": [1, 2, 3]
+    },
+
+    "DrainBeforeReplace": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, set the ECS service deployment strategy to drain-and-replace (minimumHealthyPercent=0, maximumPercent=100) instead of the default rolling overlap (100/200), and disable availability-zone rebalancing. Use for single-instance stateful services with shared storage where two concurrent task copies would conflict — e.g. mongodb/neo4j writing to a shared EFS data dir. Costs ~2-3 minutes of unavailability per deploy in exchange for clean, race-free shutdowns. Used by deploy-ecs.ps1 on both create-service and update-service."
+    },
+
+    "VersionFile": {
+      "type": "string",
+      "description": "Relative path to the file containing the version string. Used by deploy-ecs.ps1 to read/bump the application version.",
+      "examples": ["pyproject.toml", "package.json", "frontend/src/App.jsx"]
+    },
+
+    "VersionPattern": {
+      "type": "string",
+      "description": "Regex pattern with a single capture group to extract the semver version from VersionFile. Used by deploy-ecs.ps1.",
+      "examples": [
+        "(?m)^version\\s*=\\s*\"([\\d.]+)\"",
+        "\"version\":\\s*\"([\\d.]+)\"",
+        "APP_VERSION\\s*=\\s*'v([\\d.]+)'"
+      ]
+    },
+
+    "DockerfilePath": {
+      "type": "string",
+      "default": "Dockerfile",
+      "description": "Relative path to the Dockerfile used for building the container image. Used by deploy-ecs.ps1.",
+      "examples": ["Dockerfile", "docker/Dockerfile.prod"]
+    },
+
+    "ContainerName": {
+      "type": "string",
+      "description": "Container name for ALB target group registration. Must match the 'name' field in the task definition's containerDefinitions. Defaults to ProjectName. Used by deploy-ecs.ps1.",
+      "examples": ["my-proj", "my-app"]
+    },
+
+    "BuildTarget": {
+      "type": "string",
+      "description": "Target stage to build in a multi-stage Dockerfile (passed as --target). Leave empty or omit for single-stage Dockerfiles or to build the final stage. Used by deploy-ecs.ps1.",
+      "examples": ["runtime", "production", ""]
+    },
+
+    "ExternalImage": {
+      "type": "string",
+      "description": "Full image reference for deployments that source the container image from an external / cross-account registry. Skips the local build and the ECR verification step. Overridden by the -ExternalImage switch. Used by deploy-ecs.ps1.",
+      "examples": ["123456789012.dkr.ecr.eu-central-1.amazonaws.com/my-app:latest", "ghcr.io/vendor/app@sha256:abc123"]
+    },
+
+    "UseTarContext": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true (and the container tool is Podman), pipe the build context through tar to exclude .git and other large directories. Workaround for repos where Podman 5.x hits 'io: read/write on closed pipe' errors. Used by deploy-ecs.ps1."
+    },
+
+    "ContainerTool": {
+      "type": "string",
+      "enum": ["wslc", "docker", "podman"],
+      "description": "Preferred container runtime for building and pushing the image. Overridden by the -UseWslc/-UseDocker/-UsePodman switches. If omitted, auto-detect prefers wslc, then docker, then podman. Used by deploy-ecs.ps1.",
+      "examples": ["wslc", "docker", "podman"]
+    },
+
+    "DeployDir": {
+      "type": "string",
+      "description": "Directory containing the ecs/ subfolder for task definitions and config output. Defaults to ../deploy relative to the CCM/ script directory. Used by both scripts.",
+      "examples": ["deploy", "infrastructure/deploy"]
+    },
+
+    "VpcEndpointSecurityGroupId": {
+      "type": "string",
+      "pattern": "^sg-[0-9a-f]+$",
+      "description": "ID of a shared security group already attached to VPC interface endpoints. When provided, setup-aws-infrastructure.ps1 skips creating/modifying VPC endpoints and adding per-project ECS security groups to them, avoiding the 5-SG-per-ENI limit.",
+      "examples": ["sg-0123456789abcdef0"]
+    },
+
+    "_comment_alb": {
+      "type": "string",
+      "description": "Human-readable comment for the ALB tuning section."
+    },
+
+    "_comment_alb_logs": {
+      "type": "string",
+      "description": "Human-readable comment for the ALB access logs section."
+    },
+
+    "AlbIdleTimeoutSeconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4000,
+      "description": "Override the ALB idle timeout in seconds. When set, setup-aws-infrastructure.ps1 ensures the ALB uses this value. Useful for projects with long-running requests (e.g. large file uploads). If omitted, the AWS default (60 s) is left unchanged.",
+      "examples": [300, 600]
+    },
+
+    "AlbAccessLogsBucket": {
+      "type": "string",
+      "minLength": 3,
+      "description": "Enable ALB access logging to this S3 bucket. setup-aws-infrastructure.ps1 creates the bucket if missing, blocks public access, and attaches the delivery policy Elastic Load Balancing requires. Access logs give per-request forensics (elb_status_code, target_status_code, request/target processing times) that CloudWatch metrics cannot provide. If omitted, access logging is left unchanged.",
+      "examples": ["my-app-alb-logs-123456789012"]
+    },
+
+    "AlbAccessLogsPrefix": {
+      "type": "string",
+      "description": "S3 key prefix for ALB access logs. Only used when AlbAccessLogsBucket is set. Defaults to the project name.",
+      "examples": ["my-app"]
+    },
+
+    "AlbAccessLogsRetentionDays": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3650,
+      "description": "Expire ALB access log objects after this many days via an S3 lifecycle rule. Only used when AlbAccessLogsBucket is set. Access logs accumulate quickly, so a retention window is recommended. If omitted, objects are kept indefinitely.",
+      "examples": [30, 90]
+    },
+
+    "LogRetentionDays": {
+      "type": "integer",
+      "enum": [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653],
+      "description": "Retention applied to this project's CloudWatch log groups on every infrastructure run, for any group that has no retention policy set (i.e. 'never expire'). This covers groups the setup script does not create: the ECS agent creates the app log group itself when a task definition sets awslogs-create-group, and sidecars or metric exporters create their own. Groups that already carry an explicit retention are left untouched, so a deliberately longer window is never clobbered. Only the values CloudWatch Logs itself accepts are valid. Default: 30.",
+      "examples": [30, 90]
+    },
+
+    "EnableNlb": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, setup-aws-infrastructure.ps1 creates a Network Load Balancer (NLB) in front of the ALB. The NLB provides static IPs per AZ and can serve as an AWS PrivateLink endpoint. Route 53 DNS points to the NLB instead of the ALB. The ECS service still registers with the ALB target group."
+    },
+
+    "NlbElasticIpAllocationIds": {
+      "type": "string",
+      "description": "Comma-separated Elastic IP allocation IDs for the NLB (one per subnet/AZ). Only for internet-facing NLBs — internal NLBs already get static private IPs from the subnet CIDR and cannot use EIPs. If omitted, the NLB uses AWS-assigned IPs.",
+      "examples": ["eipalloc-aaa,eipalloc-bbb,eipalloc-ccc"]
+    },
+
+    "ExposeContainerPorts": {
+      "type": "array",
+      "description": "Optional list of additional container ports to expose through the NLB (e.g. for direct dev/debug access to side-car containers like Neo4j, Qdrant). For each entry setup-aws-infrastructure.ps1 creates an NLB target group (target-type=ip) on the given Port, an NLB TCP listener forwarding to it, and SG ingress rules on the ECS task SG allowing each VpnCidr block. The ECS service load-balancers list is reconciled to register tasks with all extra target groups on every deployment. Requires EnableNlb=true.",
+      "items": {
+        "type": "object",
+        "required": ["Port", "ContainerName"],
+        "properties": {
+          "Port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "NLB listener port. Also used as the destination container port unless ContainerPort overrides it."
+          },
+          "ContainerName": {
+            "type": "string",
+            "description": "Name of the container in the task definition that listens on this port. Must match a containerDefinitions[].name entry."
+          },
+          "ContainerPort": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "Container-side port. Defaults to Port when omitted."
+          },
+          "Protocol": {
+            "type": "string",
+            "enum": ["TCP", "UDP", "TCP_UDP"],
+            "default": "TCP",
+            "description": "L4 protocol for the NLB listener and target group."
+          },
+          "HealthCheckProtocol": {
+            "type": "string",
+            "enum": ["TCP", "HTTP", "HTTPS"],
+            "default": "TCP",
+            "description": "Health check protocol on the NLB target group. TCP is safe for any service that accepts TCP connections; HTTP/HTTPS allow path-based checks."
+          },
+          "HealthCheckPath": {
+            "type": "string",
+            "pattern": "^/",
+            "description": "Health check path. Only used when HealthCheckProtocol is HTTP or HTTPS. Defaults to '/'."
+          },
+          "HealthCheckMatcher": {
+            "type": "string",
+            "default": "200-399",
+            "description": "Acceptable HTTP status codes for HealthCheckProtocol HTTP/HTTPS. Ignored for TCP."
+          }
+        },
+        "additionalProperties": false
+      },
+      "examples": [
+        [
+          { "Port": 7474, "ContainerName": "neo4j", "HealthCheckProtocol": "HTTP", "HealthCheckPath": "/" },
+          { "Port": 7687, "ContainerName": "neo4j" },
+          { "Port": 6333, "ContainerName": "qdrant",     "HealthCheckProtocol": "HTTP", "HealthCheckPath": "/" }
+        ]
+      ]
+    },
+
+    "EnableEfs": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, setup-aws-infrastructure.ps1 creates an EFS filesystem with mount targets in each subnet and an EFS security group allowing NFS access from ECS tasks. The filesystem ID is saved to infrastructure-config.json for use in task definitions."
+    },
+
+    "EnableS3": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, setup-aws-infrastructure.ps1 creates an S3 bucket for persistent document storage and grants the ECS task role read/write access. The bucket name is saved to infrastructure-config.json."
+    },
+
+    "S3BucketName": {
+      "type": "string",
+      "description": "Override the S3 bucket name. Defaults to '<ProjectName>-documents-<AccountId>'. Used by setup-aws-infrastructure.ps1 when EnableS3 is true.",
+      "examples": ["my-app-documents-123456789012"]
+    },
+
+    "S3BucketVersioning": {
+      "type": "boolean",
+      "default": true,
+      "description": "Enable S3 bucket versioning when EnableS3 is true. Default true, which is the historical behaviour: versioning protects against accidental deletion. Set false for a bucket whose delete semantics are deliberately final -- a project that documents a hard delete with no undelete path must not have versioning silently turned back on underneath it, because the objects would remain recoverable while the documentation says they are gone. Used by setup-aws-infrastructure.ps1."
+    },
+
+    "EnableDynamoDb": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, setup-aws-infrastructure.ps1 creates the tables listed in DynamoDbTables and grants the ECS task role scoped read/write access to them. Table names are saved to infrastructure-config.json. Mirrors EnableS3/EnableAurora."
+    },
+
+    "DynamoDbTables": {
+      "type": "array",
+      "description": "DynamoDB tables to create when EnableDynamoDb is true. Each table gets a scoped task-role policy. Use the '<ProjectName>-<purpose>' naming convention to avoid cross-project collisions.",
+      "items": {
+        "type": "object",
+        "required": ["Name", "PartitionKey"],
+        "additionalProperties": false,
+        "properties": {
+          "Name": { "type": "string", "minLength": 3, "description": "Full DynamoDB table name." },
+          "BillingMode": { "type": "string", "enum": ["PAY_PER_REQUEST", "PROVISIONED"], "default": "PAY_PER_REQUEST", "description": "On-demand (default) or provisioned capacity." },
+          "PartitionKey": {
+            "type": "object", "required": ["Name"], "additionalProperties": false,
+            "properties": {
+              "Name": { "type": "string" },
+              "Type": { "type": "string", "enum": ["S", "N", "B"], "default": "S" }
+            }
+          },
+          "SortKey": {
+            "type": "object", "required": ["Name"], "additionalProperties": false,
+            "properties": {
+              "Name": { "type": "string" },
+              "Type": { "type": "string", "enum": ["S", "N", "B"], "default": "S" }
+            }
+          }
+        }
+      },
+      "examples": [
+        [ { "Name": "my-app-scopes", "PartitionKey": { "Name": "scopeId", "Type": "S" } } ]
+      ]
+    },
+
+    "EnableAurora": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, setup-aws-infrastructure.ps1 creates an Aurora PostgreSQL Serverless v2 cluster, DB subnet group, Aurora security group, and a database URL secret in Secrets Manager."
+    },
+
+    "AuroraMasterPassword": {
+      "type": "string",
+      "description": "Master password for the Aurora cluster. If omitted, a random 30-character alphanumeric password is auto-generated and stored in Secrets Manager. Used by setup-aws-infrastructure.ps1."
+    },
+
+    "AuroraEngineVersion": {
+      "type": "string",
+      "default": "15.12",
+      "description": "Aurora PostgreSQL engine version. Used by setup-aws-infrastructure.ps1. Must be a version AWS actually publishes for aurora-postgresql in the target region — verify with: aws rds describe-db-engine-versions --engine aurora-postgresql --region <region> --query \"DBEngineVersions[].EngineVersion\". Note that '-limitless' variants (e.g. 16.4-limitless) are distinct versions and are NOT interchangeable with the plain ones; passing a version AWS does not publish fails at cluster creation.",
+      "examples": ["15.12", "16.14"]
+    },
+
+    "AuroraMinCapacity": {
+      "type": "number",
+      "default": 0.5,
+      "minimum": 0.5,
+      "description": "Serverless v2 minimum ACU (Aurora Capacity Units). Used by setup-aws-infrastructure.ps1.",
+      "examples": [0.5, 1, 2]
+    },
+
+    "AuroraMaxCapacity": {
+      "type": "number",
+      "default": 2,
+      "minimum": 0.5,
+      "description": "Serverless v2 maximum ACU (Aurora Capacity Units). Used by setup-aws-infrastructure.ps1.",
+      "examples": [2, 4, 8]
+    },
+
+    "AuroraMasterUsername": {
+      "type": "string",
+      "default": "postgres",
+      "description": "Master username for the Aurora cluster. Used by setup-aws-infrastructure.ps1.",
+      "examples": ["postgres", "dbadmin"]
+    },
+
+    "AuroraDatabaseName": {
+      "type": "string",
+      "description": "Database name created inside the Aurora cluster. Defaults to ProjectName with hyphens replaced by underscores. Used by setup-aws-infrastructure.ps1.",
+      "examples": ["my_proj", "my_app"]
+    },
+
+    "DatabaseUrlScheme": {
+      "type": "string",
+      "default": "postgresql://",
+      "description": "Scheme prefix for the DATABASE_URL stored in Secrets Manager. Use 'postgresql+asyncpg://' for async Python apps. Used by setup-aws-infrastructure.ps1.",
+      "examples": ["postgresql://", "postgresql+asyncpg://"]
+    },
+
+    "_comment_dns": {
+      "type": "string",
+      "description": "Human-readable comment for the Route 53 / HTTPS settings section."
+    },
+
+    "ParentDomain": {
+      "type": "string",
+      "description": "Parent domain for all PoC subdomains, managed via Route 53 DNS delegation. Set by setup-route53-zone.ps1. Used by setup-aws-infrastructure.ps1 to auto-create CNAME records and by deploy-ecs.ps1 to auto-derive CustomDomainName.",
+      "examples": ["apps.example.com", "apps.example.com"]
+    },
+
+    "Route53HostedZoneId": {
+      "type": "string",
+      "pattern": "^Z[A-Z0-9]+$",
+      "description": "Route 53 hosted zone ID for the ParentDomain. Set by setup-route53-zone.ps1. Used by setup-aws-infrastructure.ps1 to create per-app CNAME records.",
+      "examples": ["Z1234567890ABC"]
+    },
+
+    "CustomDomainName": {
+      "type": "string",
+      "description": "Full custom domain name for this project (e.g. tool.apps.example.com). If empty and ParentDomain is set, auto-derived as '<ProjectName>.<ParentDomain>'. Used by deploy-ecs.ps1 for CORS_ALLOWED_ORIGINS and by setup-aws-infrastructure.ps1 for the Route 53 CNAME.",
+      "examples": ["tool1.apps.example.com", "tool2.apps.example.com"]
+    },
+
+    "PreviewEnvironments": {
+      "type": "object",
+      "description": "Optional PR preview/review-app configuration used by deploy-ecs-preview.ps1, remove-ecs-preview.ps1, and cleanup-ecs-previews.ps1. Disabled by default so existing projects keep their current behavior.",
+      "properties": {
+        "Enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable ECS preview environments for pull requests."
+        },
+        "RoutingMode": {
+          "type": "string",
+          "enum": ["path", "host"],
+          "default": "path",
+          "description": "Routing strategy for previews. Path routing is the portable default; host routing requires wildcard/SAN certificate and DNS support."
+        },
+        "PathPrefixTemplate": {
+          "type": "string",
+          "default": "/_pr/{id}",
+          "pattern": "^/",
+          "description": "Path prefix template for path-based previews. Supported tokens: {project}, {id}."
+        },
+        "HostTemplate": {
+          "type": "string",
+          "description": "Hostname template for host-based previews, for example pr-{id}.preview.example.com. Supported tokens: {project}, {id}."
+        },
+        "TtlDays": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 1,
+          "description": "Number of days a preview can live without being refreshed before cleanup removes it."
+        },
+        "DesiredCount": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 0,
+          "description": "Desired ECS task count for preview services."
+        },
+        "RunMigrations": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run migrations for preview deployments. Keep false unless previews use an isolated or explicitly safe database."
+        },
+        "RulePriorityBase": {
+          "type": "integer",
+          "default": 30000,
+          "minimum": 1,
+          "maximum": 50000,
+          "description": "Start of the ALB listener-rule priority band reserved for preview environments."
+        },
+        "RulePriorityBandSize": {
+          "type": "integer",
+          "default": 1000,
+          "minimum": 1,
+          "maximum": 50000,
+          "description": "Number of listener-rule priorities reserved for preview environments."
+        },
+        "DeregistrationDelaySeconds": {
+          "type": "integer",
+          "default": 30,
+          "minimum": 0,
+          "maximum": 3600,
+          "description": "Preview target-group deregistration delay used to make teardown faster than production."
+        },
+        "DatabaseStrategy": {
+          "type": "string",
+          "enum": ["Shared", "External", "Isolated"],
+          "default": "Shared",
+          "description": "Describes the database safety model for previews. The scripts do not create per-PR databases; use SecretOverrides for External/Isolated strategies."
+        },
+        "TaskDefinitionFile": {
+          "type": "string",
+          "description": "Optional path (relative to project root) to an alternate ECS task definition used only for preview deployments, e.g. an EFS-free / ephemeral-storage variant. When omitted, deploy-ecs.ps1's default task-definition-live.json is used."
+        },
+        "EnvironmentOverrides": {
+          "type": "object",
+          "description": "Environment variables applied to preview task definitions. Values may contain {project}, {id}, {url}, {origin}, and {path} tokens.",
+          "additionalProperties": { "type": "string" }
+        },
+        "SecretOverrides": {
+          "type": "object",
+          "description": "Secret entries applied to preview task definitions. Values are ECS valueFrom ARNs or names and may contain {project}, {id}, {url}, and {origin} tokens.",
+          "additionalProperties": { "type": "string" }
+        },
+        "HealthCheck": {
+          "type": "object",
+          "description": "Optional health-check overrides for preview target groups. Missing values are inherited from the primary target group or top-level HealthCheckPath.",
+          "properties": {
+            "Path": {
+              "type": "string",
+              "pattern": "^/",
+              "description": "Preview target-group health check path."
+            },
+            "Matcher": {
+              "type": "string",
+              "default": "200-399",
+              "description": "Accepted HTTP status code matcher."
+            },
+            "Protocol": {
+              "type": "string",
+              "enum": ["HTTP", "HTTPS"],
+              "description": "Health-check protocol."
+            }
+          },
+          "additionalProperties": false
+        },
+        "EcrLifecycle": {
+          "type": "object",
+          "description": "Optional lifecycle settings for preview image tags.",
+          "properties": {
+            "ExpirePrImagesAfterDays": {
+              "type": "integer",
+              "default": 14,
+              "minimum": 1,
+              "description": "Recommended retention for ECR images tagged with the pr-* prefix."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "ci": {
+      "type": "object",
+      "description": "Optional CI quality-gate overrides consumed by CCM/ci-checks.ps1. All fields optional; anything absent is auto-detected.",
+      "additionalProperties": false,
+      "properties": {
+        "linter": { "type": "string", "enum": ["auto", "ruff", "black-isort", "none"], "default": "auto", "description": "Python linter. 'auto' picks ruff if [tool.ruff] present, else black+isort, else none." },
+        "skipLinting": { "type": "boolean", "default": false, "description": "Force-disable Python linting." },
+        "skipBackend": { "type": "boolean", "default": false, "description": "Force-disable the Python backend gates even if pyproject.toml exists." },
+        "hasBackend": { "type": "boolean", "description": "Explicitly overrides pyproject.toml autodetection, for Python backends that predate pyproject.toml (e.g. requirements.txt-only layouts). Omit to autodetect (unchanged behaviour). skipBackend still wins over this: setting both skipBackend:true and hasBackend:true disables the backend gates." },
+        "skipFrontend": { "type": "boolean", "default": false, "description": "Force-disable the frontend gates even if a frontend dir exists." },
+        "skipFrontendTests": { "type": "boolean", "default": false, "description": "Force-disable only the frontend test gate, leaving lint, license, CVE and build gates on. The gate is otherwise autodetected: it runs whenever the frontend package.json defines the script named by frontendTestScript. The 'npm init' placeholder ('echo \"Error: no test specified\" && exit 1') is never treated as a suite." },
+        "frontendTestScript": { "type": "string", "default": "test", "description": "package.json script run by the frontend test gate, for suites kept under a CI-specific name (e.g. 'test:ci', 'test:unit'). Absent = 'test'. ci-checks sets CI=true around the run so watch-mode runners execute once and exit; point the runner's JUnit reporter at test-frontend.xml in the repo root to have individual test names published." },
+        "pipAuditIgnores": { "type": "array", "items": { "type": "string" }, "description": "CVE IDs passed to pip-audit --ignore-vuln (deliberate, reviewed exceptions). Applied to both the CI-venv audit and every ci.auditRequirements manifest scan." },
+        "pipLicenseIgnores": { "type": "array", "items": { "type": "string" }, "description": "Package names exempted from the pip-licenses GPL/AGPL deny gate and oddball check (e.g. a build-only tool distributed under GPL-with-exception, such as PyInstaller's bootloader exception, that never ships in the product itself). Each entry must be a documented, deliberate exemption, not a blanket mute." },
+        "npmAuditIgnores": { "type": "array", "items": { "type": "string" }, "description": "GHSA ids (or advisory URLs) excluded from the npm audit HIGH+ gate. npm audit has no native ignore, so ci-checks parses --json and drops these. Use only for documented not-applicable advisories (VEX 'not affected')." },
+        "npmLegacyPeerDeps": { "type": "boolean", "default": false, "description": "Set true to install the frontend with 'npm ci --legacy-peer-deps' instead of plain 'npm ci'. Default false uses npm's real peer resolution. --legacy-peer-deps skips peer resolution entirely, so a devDependency that ships a required package only as a peer never lands in node_modules and the type-check fails on its re-exports - masking that by default hid real breakage, so projects that need the flag now declare it. Opt in only if 'npm ci' fails on an unresolvable peer conflict, and treat it as debt to fix in the manifest rather than a permanent setting." },
+        "auditRequirements": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Repo-relative paths to additional requirements files that must be CVE-scanned via 'pip-audit -r <path>' even though they are NOT installed into the CI venv - e.g. an aws-ecs project's Dockerfile installs a disjoint backend/requirements.txt while the CI venv is built from the root requirements-dev.txt/requirements.txt. Without this, a manifest that actually ships to production can go completely unscanned. pip-audit -r resolves an unpinned manifest to the versions a fresh install would get, which is what a Docker build does, so this models production directly rather than approximating it. Uses the same ci.pipAuditIgnores allowlist and the same fail-the-build behaviour as the CI-venv audit. A path that does not exist fails the build (not a silent skip). Does NOT extend license scanning: pip-licenses inspects the installed environment, so an uninstalled manifest's licenses are not covered by this option."
+        },
+        "sourcePaths": { "type": "array", "items": { "type": "string" }, "description": "Source dirs for bandit/lint targets. Default backend/ if present, else src/." },
+        "frontendDir": { "type": "string", "default": "frontend", "description": "Frontend directory containing package.json." },
+        "testPaths": { "type": "array", "items": { "type": "string" }, "description": "pytest target paths. Default ['tests/']." },
+        "testMarkers": {
+          "type": "string",
+          "description": "Pytest marker expression passed as -m (e.g. \"not slow\"). Omit to run every test. Overridden by ci-checks.ps1 -TestMarkers, which the ECS pipeline template passes on the full-test schedule."
+        },
+        "covTarget": { "type": "string", "default": "backend", "description": "Coverage target passed to pytest --cov (e.g. 'src/my_package')." },
+        "covFailUnder": { "type": "number", "minimum": 0, "maximum": 100, "description": "Opt-in coverage threshold passed to pytest --cov-fail-under. Absent = coverage reported but not gated." },
+        "mypyPaths": { "type": "array", "items": { "type": "string" }, "description": "Explicit target paths for the strict-typing gate, passed to 'python -m mypy'. Absent = the gate autodetects: it runs against sourcePaths whenever the project declares mypy config (mypy.ini, .mypy.ini, [tool.mypy] in pyproject.toml, or [mypy] in setup.cfg). Strictness and per-module overrides come from that config; only the targets are passed here. mypy must be in the project's dev dependencies." },
+        "skipMypy": { "type": "boolean", "default": false, "description": "Force-disable the strict-typing gate, including when it would otherwise autodetect from a declared mypy config. Wins over mypyPaths. For a project that keeps a [tool.mypy] block for editors or pre-commit without a CI-clean full-repo run." },
+        "apiClientDrift": {
+          "type": "object",
+          "description": "Opt-in gate that regenerates an OpenAPI schema + typed client and fails if the committed artifacts differ, keeping a generated API client from drifting. Consumed by CCM/ci-checks.ps1.",
+          "additionalProperties": false,
+          "required": ["paths"],
+          "properties": {
+            "schemaCommand": { "type": "string", "description": "Command that dumps the OpenAPI schema to its committed path (e.g. 'python scripts/generate_openapi.py'). Run from the repo root with the venv active." },
+            "generateCommand": { "type": "string", "description": "Command that regenerates the typed client from the schema (e.g. 'npm run generate-api')." },
+            "generateDir": { "type": "string", "default": ".", "description": "Directory to run generateCommand in (e.g. 'frontend')." },
+            "paths": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Repo-relative paths compared with 'git diff --exit-code' after regeneration (e.g. ['frontend/openapi.json', 'frontend/src/api'])." },
+            "env": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Dummy (non-secret) env vars exported before schemaCommand, for apps that require settings/env at import time. Never put real secrets here." }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

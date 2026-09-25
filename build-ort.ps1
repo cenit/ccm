@@ -123,20 +123,17 @@ else {
   $IsWindowsPowerShell = $false
   $IsInGitSubmodule = $false
 }
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
 if($IsInGitSubmodule) {
   $PSCustomScriptRoot = Split-Path $PSScriptRoot -Parent
 }
 else {
   $PSCustomScriptRoot = $PSScriptRoot
 }
-$BuildOrtLogPath = "$PSCustomScriptRoot/build-ort.log"
-Start-Transcript -Path $BuildOrtLogPath
+$ccmLog = Initialize-CcmLogging
+trap { Stop-CcmLogging $ccmLog; break }
 
 Write-Host "Build ORT script version ${build_ort_ps1_version}, utils module version ${utils_psm1_version}"
-Write-Host "Working directory: $PSCustomScriptRoot, log file: $BuildOrtLogPath, $script_name is in submodule: $IsInGitSubmodule"
+Write-Host "Working directory: $PSCustomScriptRoot, log file: $($ccmLog.LogPath), $script_name is in submodule: $IsInGitSubmodule"
 
 Write-Host -NoNewLine "PowerShell version:"
 $PSVersionTable.PSVersion
@@ -376,6 +373,4 @@ if (-Not $SkipORT) {
 
 Pop-Location
 
-$ErrorActionPreference = "SilentlyContinue"
-Stop-Transcript | out-null
-$ErrorActionPreference = "Continue"
+Stop-CcmLogging $ccmLog
